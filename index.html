@@ -52,6 +52,19 @@
       </select>
     </div>
     <div class="control-group">
+      <div class="control-group-title">Section Display</div>
+      <div class="row">
+        <button id="addSection">Add</button>
+        <button id="removeSection">Remove</button>
+        <button id="clearAll">Clear All</button>
+      </div>
+      <div class="row">
+        <button id="recenterView">Recenter</button>
+        <button id="zoomSection">Zoom Section</button>
+        <button id="apply">Refresh Visible</button>
+      </div>
+    </div>
+    <div class="control-group">
       <div class="control-group-title">Visible Banks</div>
       <div class="check-row">
         <label class="check-card"><input id="bank0" type="checkbox" checked> High</label>
@@ -80,31 +93,19 @@
       <button id="clearSelection">Clear Selection</button>
     </div>
     <div class="control-group">
-      <div class="control-group-title">Section Display</div>
-    <div class="row">
-      <button id="addSection">Add</button>
-      <button id="removeSection">Remove</button>
-      <button id="clearAll">Clear All</button>
-    </div>
-    <div class="row">
-      <button id="recenterView">Recenter</button>
-      <button id="zoomSection">Zoom Section</button>
-      <button id="apply">Refresh Visible</button>
-    </div>
-    </div>
-    <div class="control-group">
       <div class="control-group-title">Driving Camera</div>
       <button id="drivingModeButton" class="toggle-button off" type="button">Driving Mode: Off</button>
     </div>
     <div class="control-group">
-      <div class="control-group-title">Flat Preview</div>
-      <label class="check-card"><input id="previewFlattenRules" type="checkbox" checked> Use CSV flat colors and rules</label>
-      <label>Default flat banks</label>
+      <div class="control-group-title">Preview</div>
+      <label>Flat shade LOD banks</label>
       <div class="check-row">
         <label class="check-card"><input id="previewFlatBank0" type="checkbox"> High</label>
-        <label class="check-card"><input id="previewFlatBank1" type="checkbox" checked> Medium</label>
-        <label class="check-card"><input id="previewFlatBank2" type="checkbox" checked> Low</label>
+        <label class="check-card"><input id="previewFlatBank1" type="checkbox"> Medium</label>
+        <label class="check-card"><input id="previewFlatBank2" type="checkbox"> Low</label>
       </div>
+      <label class="check-card"><input id="previewUserFlatPolygons" type="checkbox" checked> Flat shade user defined flat polygons</label>
+      <label class="check-card"><input id="previewUserDeletePolygons" type="checkbox" checked> Do not show user deleted polygons</label>
     </div>
     <p class="hint">Section mode activates a section. Flatten and Delete modes build export lists. Shift+click is a quick section select.</p>
     <div id="info">No polygon selected.</div>
@@ -123,6 +124,7 @@
   </div>
   <div class="hidden-compat">
     <input id="drivingMode" type="checkbox">
+    <input id="previewFlattenRules" type="checkbox" checked>
     <input id="textureSelectedSection" type="checkbox">
     <input id="file" type="file">
     <input id="importFlatColorCsv" type="file">
@@ -408,11 +410,21 @@
     }
 
     function previewFlattenRulesEnabled() {
-      return document.getElementById("previewFlattenRules").checked;
+      return true;
     }
 
     function previewDefaultFlatBankEnabled(entry) {
       const el = document.getElementById("previewFlatBank" + entry);
+      return Boolean(el && el.checked);
+    }
+
+    function previewUserFlatPolygonsEnabled() {
+      const el = document.getElementById("previewUserFlatPolygons");
+      return Boolean(el && el.checked);
+    }
+
+    function previewUserDeletePolygonsEnabled() {
+      const el = document.getElementById("previewUserDeletePolygons");
       return Boolean(el && el.checked);
     }
 
@@ -425,9 +437,8 @@
     }
 
     function shouldPreviewFlatPoly(poly) {
-      if (!previewFlattenRulesEnabled()) return false;
-      if (deleteSelected.has(poly.id)) return false;
-      if (flattenSelected.has(poly.id)) return true;
+      if (previewUserDeletePolygonsEnabled() && deleteSelected.has(poly.id)) return false;
+      if (previewUserFlatPolygonsEnabled() && flattenSelected.has(poly.id)) return true;
       const rule = flatRuleForPoly(poly);
       if (!rule) return previewDefaultFlatBankEnabled(poly.entry);
       if (rule.exempt) return false;
@@ -956,8 +967,8 @@
     function polyHighlight(poly) {
       if (snapSourcePoly && poly.id === snapSourcePoly.id) return { color: 0xff9b00, opacity: 0.88, edge: 0xffffff };
       if (snapTargetPoly && poly.id === snapTargetPoly.id) return { color: 0x00e5ff, opacity: 0.88, edge: 0xffffff };
-      if (deleteSelected.has(poly.id)) return { color: 0xff00d4, opacity: 0.78, edge: 0xffffff };
-      if (flattenSelected.has(poly.id)) return { color: 0xff2020, opacity: 0.82, edge: 0xffffff };
+      if (!previewUserDeletePolygonsEnabled() && deleteSelected.has(poly.id)) return { color: 0xff00d4, opacity: 0.78, edge: 0xffffff };
+      if (!previewUserFlatPolygonsEnabled() && flattenSelected.has(poly.id)) return { color: 0xff2020, opacity: 0.82, edge: 0xffffff };
       if (activeSection !== null && polySection(poly) === activeSection && !textureSelectedSectionEnabled()) return { color: 0xffff40, opacity: 0.34, edge: 0xffff40 };
       return null;
     }
@@ -1026,7 +1037,12 @@
       }
       meshes = [];
       if (!course) return;
-      const polys = course.polygons.filter(poly => sectionVisible(poly) && highVariantMatches(poly) && polygonMatches(poly));
+      const polys = course.polygons.filter(poly =>
+        sectionVisible(poly) &&
+        highVariantMatches(poly) &&
+        polygonMatches(poly) &&
+        !(previewUserDeletePolygonsEnabled() && deleteSelected.has(poly.id))
+      );
       for (const poly of polys) {
         const mesh = makeMesh(poly);
         meshes.push(mesh);
@@ -1038,7 +1054,7 @@
         ? `\nloaded=${course.viewer_transform.type}\ntransformed=${course.viewer_transform.transformed_polygons}`
         : "";
       const previewBanks = [0, 1, 2].filter(entry => previewDefaultFlatBankEnabled(entry)).map(entry => bankNames[entry]).join(",") || "none";
-      const flatPreviewText = `\nflat_color_rules=${flatColorRules.size} flat_preview=${previewFlattenRulesEnabled() ? "on" : "off"} preview_default_flat=${previewBanks}`;
+      const flatPreviewText = `\nflat_color_rules=${flatColorRules.size} flat_lod_banks=${previewBanks} user_flat_preview=${previewUserFlatPolygonsEnabled() ? "on" : "off"} user_delete_hidden=${previewUserDeletePolygonsEnabled() ? "on" : "off"}`;
       const drivingText = `\ndriving=${driving.enabled ? "on" : "off"} road_candidates=${drivingRoadCache.length}`;
       document.getElementById("info").textContent =
         `${polys.length} visible polygons\nmode=${selectionMode()}\nflatten=${flattenSelected.size} delete=${deleteSelected.size}\nloaded_sections=${[...visibleSections].sort((a, b) => a - b).join(",") || "none"}\nchosen=${section || "all"}\nactive_section=${activeEditSection() ?? "none"}\nhigh_variant=${document.getElementById("highVariant").value || "both"}${flatPreviewText}${drivingText}${transformText}`;
@@ -1303,7 +1319,7 @@
       }
       rebuildScene();
       document.getElementById("info").textContent =
-        `Loaded ${label}\nrows=${rows.length}\nrules=${flatColorRules.size}\npreview=${previewFlattenRulesEnabled() ? "on" : "off"}`;
+        `Loaded ${label}\nrows=${rows.length}\nrules=${flatColorRules.size}`;
     }
 
     async function importFlatColorCsv(file) {
@@ -1396,10 +1412,11 @@
     });
     document.getElementById("highVariant").addEventListener("change", rebuildScene);
     document.getElementById("textureSelectedSection").addEventListener("change", rebuildScene);
-    document.getElementById("previewFlattenRules").addEventListener("change", rebuildScene);
     for (const entry of [0, 1, 2]) {
       document.getElementById("previewFlatBank" + entry).addEventListener("change", rebuildScene);
     }
+    document.getElementById("previewUserFlatPolygons").addEventListener("change", rebuildScene);
+    document.getElementById("previewUserDeletePolygons").addEventListener("change", rebuildScene);
     document.getElementById("selectionMode").addEventListener("change", rebuildScene);
     document.getElementById("transformScope").addEventListener("change", updateTransformInfo);
     document.getElementById("clearSelection").addEventListener("click", () => {
