@@ -1,0 +1,1535 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>STCC Course Model Viewer</title>
+  <style>
+    html, body { margin: 0; height: 100%; overflow: hidden; font-family: Arial, sans-serif; background: #111; color: #eee; }
+    .pane { position: absolute; top: 12px; width: 360px; max-height: calc(100vh - 24px); overflow: auto; background: rgba(20,20,24,.92); border: 1px solid #444; padding: 12px; box-sizing: border-box; }
+    #ui { left: 12px; }
+    #filePane { right: 12px; }
+    .pane h1 { font-size: 16px; margin: 0 0 8px; }
+    .pane h2 { font-size: 13px; margin: 14px 0 8px; padding-bottom: 4px; border-bottom: 1px solid #3b3f48; color: #d8dde8; }
+    .pane label { display: block; margin: 8px 0 3px; font-size: 12px; color: #bbb; }
+    .pane input, .pane select, .pane button { width: 100%; box-sizing: border-box; margin: 2px 0; }
+    .pane button { padding: 6px; background: #303844; color: #eee; border: 1px solid #667; cursor: pointer; }
+    .pane button:hover { background: #3b4655; }
+    #info { white-space: pre-wrap; font-family: Consolas, monospace; font-size: 12px; background: #08090b; padding: 8px; min-height: 120px; }
+    .row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; }
+    .row label { margin-top: 0; }
+    .control-group { margin: 12px 0; padding: 10px; border: 1px solid #323844; background: rgba(35,40,48,.52); }
+    .control-group-title { margin: 0 0 8px; font-size: 12px; font-weight: 700; color: #e5e9f0; text-transform: uppercase; letter-spacing: .04em; }
+    .check-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    .check-card { display: flex !important; align-items: center; justify-content: center; gap: 7px; min-height: 34px; margin: 0 !important; border: 1px solid #586171; background: #202733; color: #eef2f7 !important; font-size: 12px !important; }
+    .check-card input { width: auto !important; margin: 0 !important; }
+    .toggle-button { margin-top: 8px !important; padding: 9px !important; font-weight: 700; border-color: #6b7a90 !important; background: #394252 !important; }
+    .toggle-button.on { background: #196b45 !important; border-color: #38b978 !important; color: #f1fff8 !important; }
+    .toggle-button.off { background: #51333b !important; border-color: #b05a6b !important; color: #fff4f6 !important; }
+    .file-input { padding: 7px; border: 1px solid #4d5666; background: #11151c; color: #ddd; }
+    .hint { font-size: 12px; color: #bbb; line-height: 1.35; }
+    .hidden-compat { display: none; }
+  </style>
+</head>
+<body>
+  <div id="ui" class="pane">
+    <h1>STCC Course Model Viewer</h1>
+    <div class="control-group">
+      <div class="control-group-title">Course</div>
+      <label>Course</label>
+      <select id="courseJson">
+        <option value="">Loading courses...</option>
+      </select>
+      <label>Section</label>
+      <select id="section">
+        <option value="">All sections</option>
+      </select>
+      <label>High Variant</label>
+      <select id="highVariant">
+        <option value="">Both high tables</option>
+        <option value="0">High table 0</option>
+        <option value="1">High table 1</option>
+      </select>
+    </div>
+    <div class="control-group">
+      <div class="control-group-title">Visible Banks</div>
+      <div class="check-row">
+        <label class="check-card"><input id="bank0" type="checkbox" checked> High</label>
+        <label class="check-card"><input id="bank1" type="checkbox"> Medium</label>
+        <label class="check-card"><input id="bank2" type="checkbox"> Low</label>
+      </div>
+    </div>
+    <div class="control-group">
+      <div class="control-group-title">View</div>
+      <label>Color Mode</label>
+      <select id="colorMode">
+        <option value="bank">Bank</option>
+        <option value="source">Texture Source</option>
+      </select>
+      <label>Filter Text</label>
+      <input id="filter" placeholder="source, location, model, etc.">
+    </div>
+    <div class="control-group">
+      <div class="control-group-title">Selection</div>
+      <label>Selection Mode</label>
+      <select id="selectionMode">
+        <option value="section">Section</option>
+        <option value="flatten">Flatten</option>
+        <option value="delete">Delete</option>
+      </select>
+      <button id="clearSelection">Clear Selection</button>
+    </div>
+    <div class="control-group">
+      <div class="control-group-title">Section Display</div>
+    <div class="row">
+      <button id="addSection">Add</button>
+      <button id="removeSection">Remove</button>
+      <button id="clearAll">Clear All</button>
+    </div>
+    <div class="row">
+      <button id="recenterView">Recenter</button>
+      <button id="zoomSection">Zoom Section</button>
+      <button id="apply">Refresh Visible</button>
+    </div>
+    </div>
+    <div class="control-group">
+      <div class="control-group-title">Driving Camera</div>
+      <button id="drivingModeButton" class="toggle-button off" type="button">Driving Mode: Off</button>
+    </div>
+    <div class="control-group">
+      <div class="control-group-title">Flat Preview</div>
+      <label class="check-card"><input id="previewFlattenRules" type="checkbox" checked> Use CSV flat colors and rules</label>
+      <label>Default flat banks</label>
+      <div class="check-row">
+        <label class="check-card"><input id="previewFlatBank0" type="checkbox"> High</label>
+        <label class="check-card"><input id="previewFlatBank1" type="checkbox" checked> Medium</label>
+        <label class="check-card"><input id="previewFlatBank2" type="checkbox" checked> Low</label>
+      </div>
+    </div>
+    <p class="hint">Section mode activates a section. Flatten and Delete modes build export lists. Shift+click is a quick section select.</p>
+    <div id="info">No polygon selected.</div>
+  </div>
+  <div id="filePane" class="pane">
+    <h1>CSV Lists</h1>
+    <h2>Import</h2>
+    <label>Flat Polygon CSV</label>
+    <input id="importFlatCsv" class="file-input" type="file" accept=".csv">
+    <label>Delete Polygon CSV</label>
+    <input id="importDeleteCsv" class="file-input" type="file" accept=".csv">
+    <p class="hint">Imported CSVs are only loaded into this browser session so you can review, edit, and export them again.</p>
+    <h2>Export</h2>
+    <button id="download">Export Flat Polygon CSV</button>
+    <button id="downloadDelete">Export Delete Polygon CSV</button>
+  </div>
+  <div class="hidden-compat">
+    <input id="drivingMode" type="checkbox">
+    <input id="textureSelectedSection" type="checkbox">
+    <input id="file" type="file">
+    <input id="importFlatColorCsv" type="file">
+    <input id="importTransforms" type="file">
+    <button id="loadCourseJson"></button>
+    <button id="refreshCourseJson"></button>
+    <button id="snapSection"></button>
+    <button id="exportTransforms"></button>
+    <select id="transformScope"><option value="section">section</option></select>
+  </div>
+  <script type="importmap">
+    {"imports":{"three":"https://unpkg.com/three@0.160.0/build/three.module.js","three/addons/":"https://unpkg.com/three@0.160.0/examples/jsm/"}}
+  </script>
+  <script type="module">
+    import * as THREE from "three";
+    import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x15171a);
+    const camera = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 1, 200000);
+    camera.position.set(0, 7000, 12000);
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(innerWidth, innerHeight);
+    document.body.appendChild(renderer.domElement);
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.target.set(0, 0, 0);
+    controls.screenSpacePanning = true;
+    controls.panSpeed = 8.0;
+    controls.zoomSpeed = 8.0;
+    controls.enableZoom = false;
+    controls.minDistance = 0;
+    controls.maxDistance = Infinity;
+    controls.update();
+    scene.add(new THREE.AmbientLight(0xffffff, 1));
+    const grid = new THREE.GridHelper(40000, 40, 0x333333, 0x222222);
+    scene.add(grid);
+
+    const raycaster = new THREE.Raycaster();
+    const pointer = new THREE.Vector2();
+    const group = new THREE.Group();
+    scene.add(group);
+    let course = null;
+    let courseName = "course";
+    let meshes = [];
+    const flattenSelected = new Map();
+    const deleteSelected = new Map();
+    let polyLookup = new Map();
+    let flatColorRules = new Map();
+    const sectionTransforms = new Map();
+    const visibleSections = new Set();
+    const textureLoader = new THREE.TextureLoader();
+    const textureCache = new Map();
+    const textureStatus = new Map();
+    let lastPickedPoly = null;
+    let snapSourcePoly = null;
+    let snapTargetPoly = null;
+    let lastAddedSection = null;
+    let activeSection = null;
+    let pointerDown = null;
+    let drivingRoadCache = [];
+    const driving = {
+      enabled: false,
+      height: 768,
+      targetDistance: 4096,
+      lastRoadPoly: null,
+    };
+
+    const bankColors = {0: 0x2f7dff, 1: 0xffc247, 2: 0x66cc66};
+    const bankNames = {0: "high", 1: "medium", 2: "low"};
+    const SECTION_MOVE_STEP = 256;
+    const SECTION_ROT_STEP = 2;
+    const SNAP_GRID_STEP = 0;
+    const DRIVE_MOVE_STEP = 512;
+    const DRIVE_HEIGHT_STEP = 192;
+    const DRIVE_YAW_STEP = THREE.MathUtils.degToRad(5);
+
+    function hashColor(text) {
+      let h = 2166136261;
+      for (let i = 0; i < text.length; i++) h = Math.imul(h ^ text.charCodeAt(i), 16777619);
+      return 0x404040 | (h & 0xbfbfbf);
+    }
+
+    function areaColor(area) {
+      const t = Math.max(0, Math.min(1, area / 1800000));
+      const r = Math.round(40 + t * 215);
+      const g = Math.round(80 + (1 - Math.abs(t - .5) * 2) * 120);
+      const b = Math.round(220 - t * 180);
+      return (r << 16) | (g << 8) | b;
+    }
+
+    function polygonMatches(poly) {
+      if (!document.getElementById("bank" + poly.entry).checked) return false;
+      const q = document.getElementById("filter").value.trim().toLowerCase();
+      if (!q) return true;
+      return [
+        poly.id, poly.bank, poly.source, poly.selector, poly.location,
+        String(poly.model_index), String(poly.polygon_index), poly.record_offset,
+        ...(poly.sectors || []).map(s => "section:" + s)
+      ].join(" ").toLowerCase().includes(q);
+    }
+
+    function sectionVisible(poly) {
+      if (!visibleSections.size) return false;
+      const section = polySection(poly);
+      if (section !== null && visibleSections.has(section)) return true;
+      return (poly.sectors || []).some(item => visibleSections.has(Number(item)));
+    }
+
+    function selectedSectionValues() {
+      if (!course) return [];
+      const section = document.getElementById("section").value;
+      if (section !== "") return [Number(section)];
+      if (activeSection !== null) return [activeSection];
+      return (course.sections || []).map(item => Number(item.section));
+    }
+
+    function representativePolyForSection(section) {
+      if (!course || section === null || section === undefined) return null;
+      const sectionNumber = Number(section);
+      const visibleCandidate = course.polygons.find(poly =>
+        polySection(poly) === sectionNumber &&
+        sectionVisible(poly) &&
+        highVariantMatches(poly) &&
+        polygonMatches(poly)
+      );
+      if (visibleCandidate) return visibleCandidate;
+      const highCandidate = course.polygons.find(poly =>
+        polySection(poly) === sectionNumber &&
+        Number(poly.entry) === 0 &&
+        highVariantMatches(poly)
+      );
+      if (highCandidate) return highCandidate;
+      return course.polygons.find(poly => polySection(poly) === sectionNumber) || null;
+    }
+
+    function addChosenSections() {
+      for (const section of selectedSectionValues()) {
+        visibleSections.add(section);
+        lastAddedSection = section;
+      }
+      const selectedSection = document.getElementById("section").value;
+      if (selectedSection !== "") activeSection = Number(selectedSection);
+      else if (lastAddedSection !== null) activeSection = lastAddedSection;
+      if (activeSection !== null) {
+        const representative = representativePolyForSection(activeSection);
+        if (representative) lastPickedPoly = representative;
+      }
+      rebuildScene();
+    }
+
+    function removeChosenSections() {
+      if (activeSection !== null) {
+        visibleSections.delete(activeSection);
+        activeSection = null;
+        document.getElementById("section").value = "";
+      } else for (const section of selectedSectionValues()) visibleSections.delete(section);
+      rebuildScene();
+    }
+
+    function clearVisibleSections() {
+      visibleSections.clear();
+      lastAddedSection = null;
+      activeSection = null;
+      document.getElementById("section").value = "";
+      rebuildScene();
+    }
+
+    function highVariantMatches(poly) {
+      const table = document.getElementById("highVariant").value;
+      if (!table || poly.entry !== 0) return true;
+      return (poly.table_refs || []).some(ref => String(ref.table) === table);
+    }
+
+    function polygonColor(poly) {
+      const mode = document.getElementById("colorMode").value;
+      if (mode === "source") return hashColor(poly.source);
+      if (mode === "location") return hashColor(poly.location || "untagged");
+      if (mode === "area") return areaColor(poly.area_xz || 0);
+      return bankColors[poly.entry] || 0xffffff;
+    }
+
+    function textureSelectedSectionEnabled() {
+      return document.getElementById("textureSelectedSection").checked;
+    }
+
+    function normalizeHexText(value, width = 0) {
+      if (value === null || value === undefined) return "";
+      const text = String(value).trim();
+      if (!text) return "";
+      if (!/^0x/i.test(text)) return text;
+      const n = Number.parseInt(text, 16);
+      if (!Number.isFinite(n)) return text.toUpperCase();
+      return `0x${n.toString(16).toUpperCase().padStart(width, "0")}`;
+    }
+
+    function truthyCsv(value) {
+      return /^(1|y|yes|true|x)$/i.test(String(value || "").trim());
+    }
+
+    function rgb555ToHex(value) {
+      const text = normalizeHexText(value);
+      if (!text) return null;
+      const raw = Number.parseInt(text.replace(/^0x/i, ""), 16);
+      if (!Number.isFinite(raw)) return null;
+      const bits = raw & 0x7fff;
+      const r5 = bits & 0x1f;
+      const g5 = (bits >> 5) & 0x1f;
+      const b5 = (bits >> 10) & 0x1f;
+      const r = (r5 << 3) | (r5 >> 2);
+      const g = (g5 << 3) | (g5 >> 2);
+      const b = (b5 << 3) | (b5 >> 2);
+      return (r << 16) | (g << 8) | b;
+    }
+
+    function rowFirst(row, names) {
+      for (const name of names) {
+        if (row[name] !== undefined && String(row[name]).trim() !== "") return row[name];
+      }
+      return "";
+    }
+
+    function textureRuleKeys(source, selector = "", width = "", height = "") {
+      const src = normalizeHexText(source, 5).toUpperCase();
+      const sel = normalizeHexText(selector, 4).toUpperCase();
+      const keys = [];
+      if (src && sel && width && height) keys.push(`${src}|${sel}|${Number(width)}x${Number(height)}`);
+      if (src && sel) keys.push(`${src}|${sel}`);
+      if (src) keys.push(src);
+      return keys;
+    }
+
+    function textureRuleKeysForPoly(poly) {
+      return textureRuleKeys(poly.source, poly.selector, poly.width, poly.height);
+    }
+
+    function polyKeys(poly) {
+      const entry = String(Number(poly.entry));
+      const model = String(Number(poly.model_index));
+      const polygon = String(Number(poly.polygon_index));
+      const record = normalizeHexText(poly.record_offset, 5);
+      return [
+        `${entry}|${model}|${polygon}`,
+        `${entry}|${record}`,
+        `${entry}|${model}|${polygon}|${record}`,
+      ];
+    }
+
+    function rebuildPolyLookup() {
+      polyLookup = new Map();
+      if (!course) return;
+      for (const poly of course.polygons || []) {
+        for (const key of polyKeys(poly)) {
+          if (!polyLookup.has(key)) polyLookup.set(key, poly);
+        }
+      }
+    }
+
+    function textureKey(poly) {
+      return `${String(poly.source).toUpperCase()}|${String(poly.selector).toUpperCase()}|${poly.width}x${poly.height}`;
+    }
+
+    function textureForPoly(poly) {
+      const url = (window.STCC_TEXTURE_INDEX || {})[textureKey(poly)];
+      if (!url) return null;
+      if (!textureCache.has(url)) {
+        textureStatus.set(url, "loading");
+        const texture = textureLoader.load(
+          url,
+          () => {
+            textureStatus.set(url, "loaded");
+            renderer.render(scene, camera);
+          },
+          undefined,
+          () => textureStatus.set(url, "error")
+        );
+        texture.magFilter = THREE.NearestFilter;
+        texture.minFilter = THREE.NearestFilter;
+        texture.generateMipmaps = false;
+        texture.colorSpace = THREE.SRGBColorSpace;
+        textureCache.set(url, texture);
+      }
+      return textureCache.get(url);
+    }
+
+    function previewFlattenRulesEnabled() {
+      return document.getElementById("previewFlattenRules").checked;
+    }
+
+    function previewDefaultFlatBankEnabled(entry) {
+      const el = document.getElementById("previewFlatBank" + entry);
+      return Boolean(el && el.checked);
+    }
+
+    function flatRuleForPoly(poly) {
+      for (const key of textureRuleKeysForPoly(poly)) {
+        const rule = flatColorRules.get(key);
+        if (rule) return rule;
+      }
+      return null;
+    }
+
+    function shouldPreviewFlatPoly(poly) {
+      if (!previewFlattenRulesEnabled()) return false;
+      if (deleteSelected.has(poly.id)) return false;
+      if (flattenSelected.has(poly.id)) return true;
+      const rule = flatRuleForPoly(poly);
+      if (!rule) return previewDefaultFlatBankEnabled(poly.entry);
+      if (rule.exempt) return false;
+      if (poly.entry === 1 && rule.exemptMedium) return false;
+      if (poly.entry === 2 && rule.exemptLow) return false;
+      if (previewDefaultFlatBankEnabled(poly.entry)) return true;
+      if (rule.flatten) return true;
+      if (poly.entry === 1 && rule.flattenMedium) return true;
+      if (poly.entry === 2 && rule.flattenLow) return true;
+      return false;
+    }
+
+    function previewFlatColor(poly) {
+      if (!shouldPreviewFlatPoly(poly)) return null;
+      const rule = flatRuleForPoly(poly);
+      if (rule && rule.color !== null) return rule.color;
+      return 0xff40d8;
+    }
+
+    function shouldTexturePoly(poly) {
+      return false;
+    }
+
+    function polySection(poly) {
+      const sectors = poly.sectors || [];
+      if (sectors.length === 1) return Number(sectors[0]);
+      if (poly.ribbon_section !== undefined) return Number(poly.ribbon_section);
+      if (poly.stitched_section !== undefined) return Number(poly.stitched_section);
+      return null;
+    }
+
+    function identityTransform() {
+      return { tx: 0, tz: 0, rot: 0 };
+    }
+
+    function transformKey(section, entry = null) {
+      if (section === null || section === undefined) return "";
+      if (entry === null || entry === undefined || entry === "") return `s:${Number(section)}`;
+      return `s:${Number(section)}:b:${Number(entry)}`;
+    }
+
+    function parseTransformKey(key) {
+      const text = String(key);
+      const match = /^s:(-?\d+)(?::b:(\d+))?$/.exec(text);
+      if (match) return { section: Number(match[1]), entry: match[2] === undefined ? null : Number(match[2]) };
+      if (/^-?\d+$/.test(text)) return { section: Number(text), entry: null };
+      return null;
+    }
+
+    function getTransform(section, entry = null) {
+      if (section === null || section === undefined) return identityTransform();
+      const key = transformKey(section, entry);
+      if (!sectionTransforms.has(key) && entry === null && sectionTransforms.has(Number(section))) {
+        sectionTransforms.set(key, sectionTransforms.get(Number(section)));
+        sectionTransforms.delete(Number(section));
+      }
+      if (!sectionTransforms.has(key)) sectionTransforms.set(key, identityTransform());
+      return sectionTransforms.get(key);
+    }
+
+    function effectiveTransform(section, entry) {
+      const base = getTransform(section);
+      if (entry === null || entry === undefined) return { ...base };
+      const bank = getTransform(section, entry);
+      return { tx: base.tx + bank.tx, tz: base.tz + bank.tz, rot: base.rot + bank.rot };
+    }
+
+    function transformScopeEntry(poly = null) {
+      const scope = document.getElementById("transformScope").value;
+      if (scope === "section") return null;
+      if (scope === "source") return poly ? Number(poly.entry) : (lastPickedPoly ? Number(lastPickedPoly.entry) : null);
+      return Number(scope);
+    }
+
+    function editableTransformTarget(poly = null) {
+      const scope = document.getElementById("transformScope").value;
+      const section = scope === "source" && poly ? polySection(poly) : activeEditSection();
+      if (section === null) return null;
+      return { section, entry: transformScopeEntry(poly) };
+    }
+
+    function applyMeshTransform(mesh) {
+      const section = mesh.userData.section;
+      const t = effectiveTransform(section, mesh.userData.entry);
+      mesh.position.set(t.tx, 0, -t.tz);
+      mesh.rotation.y = THREE.MathUtils.degToRad(t.rot);
+    }
+
+    function applyAllTransforms() {
+      for (const mesh of meshes) applyMeshTransform(mesh);
+      rebuildDrivingRoadCache();
+      updateTransformInfo();
+    }
+
+    function transformPoint(section, point, transform = null, entry = null) {
+      const t = transform || effectiveTransform(section, entry);
+      const theta = THREE.MathUtils.degToRad(t.rot);
+      const c = Math.cos(theta);
+      const s = Math.sin(theta);
+      return {
+        x: c * point[0] - s * point[2] + t.tx,
+        y: point[1],
+        z: s * point[0] + c * point[2] + t.tz,
+      };
+    }
+
+    function polygonWorldVertices(poly, transform = null) {
+      const section = polySection(poly);
+      return poly.vertices.map(point => transformPoint(section, point, transform, poly.entry));
+    }
+
+    function polygonViewerVertices(poly) {
+      return polygonWorldVertices(poly).map(point => new THREE.Vector3(point.x, point.y, -point.z));
+    }
+
+    function polygonPlane(poly) {
+      const verts = polygonViewerVertices(poly);
+      if (verts.length < 3) return null;
+      for (let i = 1; i < verts.length - 1; i++) {
+        const a = verts[0];
+        const b = verts[i];
+        const c = verts[i + 1];
+        const normal = new THREE.Vector3().crossVectors(
+          new THREE.Vector3().subVectors(b, a),
+          new THREE.Vector3().subVectors(c, a)
+        );
+        if (normal.lengthSq() > 1) {
+          const plane = new THREE.Plane().setFromCoplanarPoints(a, b, c);
+          if (plane.normal.y < 0) plane.negate();
+          return plane;
+        }
+      }
+      return null;
+    }
+
+    function polygonViewerCentroid(poly) {
+      const verts = polygonViewerVertices(poly);
+      const center = new THREE.Vector3();
+      for (const p of verts) center.add(p);
+      return center.divideScalar(Math.max(1, verts.length));
+    }
+
+    function projectedTangent(axis, normal, fallback = null) {
+      const tangent = axis.clone().sub(normal.clone().multiplyScalar(axis.dot(normal)));
+      if (tangent.lengthSq() > 0.0001) return tangent.normalize();
+      return fallback ? fallback.clone().normalize() : new THREE.Vector3(1, 0, 0);
+    }
+
+    function isRoadCandidate(poly) {
+      const location = String(poly.location || "").toLowerCase();
+      if (/road|track|asphalt|tarmac|pavement/.test(location)) return true;
+      if (!poly.textured) return false;
+      if (Number(poly.area_xz || 0) < 900000) return false;
+      const plane = polygonPlane(poly);
+      if (!plane || plane.normal.y < 0.28) return false;
+      const h = Number(poly.height || 0);
+      const w = Number(poly.width || 0);
+      if (w >= 96 && h > 0 && h <= 48) return true;
+      return plane.normal.y > 0.65 && Number(poly.max_edge_xz || 0) > 2500;
+    }
+
+    function roadSearchPolygons() {
+      const visible = meshes.map(mesh => mesh.userData.poly).filter(Boolean);
+      const candidates = visible.filter(isRoadCandidate);
+      if (candidates.length) return candidates;
+      if (!course) return [];
+      return (course.polygons || []).filter(poly => highVariantMatches(poly) && isRoadCandidate(poly));
+    }
+
+    function rebuildDrivingRoadCache() {
+      drivingRoadCache = [];
+      const seen = new Set();
+      for (const poly of roadSearchPolygons()) {
+        if (!poly || seen.has(poly.id)) continue;
+        seen.add(poly.id);
+        const plane = polygonPlane(poly);
+        if (!plane) continue;
+        drivingRoadCache.push({ poly, plane, center: polygonViewerCentroid(poly) });
+      }
+    }
+
+    function nearestRoadAt(position) {
+      let best = null;
+      if (!drivingRoadCache.length) rebuildDrivingRoadCache();
+      for (const item of drivingRoadCache) {
+        const { poly, plane, center } = item;
+        const dx = center.x - position.x;
+        const dz = center.z - position.z;
+        const score = Math.hypot(dx, dz) + Math.abs(plane.distanceToPoint(position)) * 4;
+        if (!best || score < best.score) best = { poly, plane, center, score };
+      }
+      return best;
+    }
+
+    function polygonCentroidWorld(poly) {
+      const verts = polygonWorldVertices(poly);
+      let x = 0, y = 0, z = 0;
+      for (const p of verts) {
+        x += p.x;
+        y += p.y;
+        z += p.z;
+      }
+      return { x: x / verts.length, y: y / verts.length, z: z / verts.length };
+    }
+
+    function polygonWorldEdges(poly, transform = null) {
+      const verts = polygonWorldVertices(poly, transform);
+      const edges = [];
+      for (let i = 0; i < verts.length; i++) {
+        const a = verts[i];
+        const b = verts[(i + 1) % verts.length];
+        const dx = b.x - a.x;
+        const dz = b.z - a.z;
+        edges.push({
+          index: i,
+          a,
+          b,
+          mid: { x: (a.x + b.x) / 2, z: (a.z + b.z) / 2 },
+          angle: Math.atan2(dz, dx),
+          len: Math.hypot(dx, dz),
+        });
+      }
+      return edges;
+    }
+
+    function angleDelta(from, to) {
+      let delta = to - from;
+      while (delta > Math.PI) delta -= Math.PI * 2;
+      while (delta < -Math.PI) delta += Math.PI * 2;
+      return delta;
+    }
+
+    function compatibleEdgeDelta(sourceAngle, targetAngle) {
+      const direct = angleDelta(sourceAngle, targetAngle);
+      const reversed = angleDelta(sourceAngle, targetAngle + Math.PI);
+      return Math.abs(direct) <= Math.abs(reversed) ? direct : reversed;
+    }
+
+    function closestEdgePair(sourcePoly, targetPoly) {
+      const sourceEdges = polygonWorldEdges(sourcePoly);
+      const targetEdges = polygonWorldEdges(targetPoly);
+      let best = null;
+      for (const sourceEdge of sourceEdges) {
+        for (const targetEdge of targetEdges) {
+          const dist = Math.hypot(sourceEdge.mid.x - targetEdge.mid.x, sourceEdge.mid.z - targetEdge.mid.z);
+          const rot = Math.abs(compatibleEdgeDelta(sourceEdge.angle, targetEdge.angle));
+          const score = dist + rot * 512;
+          if (!best || score < best.score) best = { sourceEdge, targetEdge, score };
+        }
+      }
+      return best;
+    }
+
+    function describePoly(poly) {
+      if (!poly) return "none";
+      return `section ${polySection(poly)} poly ${poly.polygon_index} src ${poly.source}`;
+    }
+
+    function setSnapSourceFromLastPicked() {
+      if (!lastPickedPoly) return;
+      snapSourcePoly = lastPickedPoly;
+      const section = polySection(snapSourcePoly);
+      if (section !== null) activeSection = section;
+      updateTransformInfo();
+    }
+
+    function setSnapTargetFromLastPicked() {
+      if (!lastPickedPoly) return;
+      snapTargetPoly = lastPickedPoly;
+      updateTransformInfo();
+    }
+
+    function snapSourceEdgeToTargetEdge() {
+      if (!snapSourcePoly || !snapTargetPoly) {
+        document.getElementById("info").textContent =
+          "Need source and target polygons.\nClick a polygon, Set Source; click adjacent polygon, Set Target.";
+        return;
+      }
+      const section = polySection(snapSourcePoly);
+      if (section === null) return;
+      const pair = closestEdgePair(snapSourcePoly, snapTargetPoly);
+      if (!pair) return;
+      const target = editableTransformTarget(snapSourcePoly);
+      if (!target) return;
+      const t = getTransform(target.section, target.entry);
+      const rotDelta = compatibleEdgeDelta(pair.sourceEdge.angle, pair.targetEdge.angle);
+      t.rot += THREE.MathUtils.radToDeg(rotDelta);
+
+      const rotatedSourceEdges = polygonWorldEdges(snapSourcePoly);
+      const sourceEdgeAfterRotate = rotatedSourceEdges[pair.sourceEdge.index];
+      const dx = pair.targetEdge.mid.x - sourceEdgeAfterRotate.mid.x;
+      const dz = pair.targetEdge.mid.z - sourceEdgeAfterRotate.mid.z;
+      const step = SNAP_GRID_STEP;
+      t.tx += step > 0 ? Math.round(dx / step) * step : dx;
+      t.tz += step > 0 ? Math.round(dz / step) * step : dz;
+      activeSection = section;
+      document.getElementById("section").value = String(section);
+      applyAllTransforms();
+    }
+
+    function sectionCentroidWorld(section) {
+      if (!course) return { x: 0, y: 0, z: 0 };
+      const polys = course.polygons.filter(poly => poly.entry === 0 && polySection(poly) === section);
+      if (!polys.length) return { x: 0, y: 0, z: 0 };
+      let x = 0, y = 0, z = 0, n = 0;
+      for (const poly of polys) {
+        const center = polygonCentroidWorld(poly);
+        x += center.x; y += center.y; z += center.z; n++;
+      }
+      return { x: x / n, y: y / n, z: z / n };
+    }
+
+    function activeEditSection() {
+      if (activeSection !== null) return activeSection;
+      const chosen = document.getElementById("section").value;
+      if (chosen !== "") return Number(chosen);
+      if (lastPickedPoly) return polySection(lastPickedPoly);
+      if (lastAddedSection !== null) return lastAddedSection;
+      return null;
+    }
+
+    function nudgeActive(dx, dz, drot = 0) {
+      let targetPoly = lastPickedPoly;
+      if (activeSection !== null && (!targetPoly || polySection(targetPoly) !== activeSection)) {
+        targetPoly = representativePolyForSection(activeSection);
+        if (targetPoly) lastPickedPoly = targetPoly;
+      }
+      const target = editableTransformTarget(targetPoly);
+      if (!target) {
+        document.getElementById("info").textContent =
+          "No active section.\nChoose a section and click Add, or click a section polygon.";
+        return;
+      }
+      const t = getTransform(target.section, target.entry);
+      t.tx += dx;
+      t.tz += dz;
+      t.rot += drot;
+      applyAllTransforms();
+    }
+
+    function panView(xUnits, yUnits, multiplier = 1) {
+      const distance = camera.position.distanceTo(controls.target);
+      const amount = Math.max(768, distance * 0.18) * multiplier;
+      const right = new THREE.Vector3().setFromMatrixColumn(camera.matrix, 0).multiplyScalar(xUnits * amount);
+      const up = new THREE.Vector3().setFromMatrixColumn(camera.matrix, 1).multiplyScalar(yUnits * amount);
+      const delta = right.add(up);
+      camera.position.add(delta);
+      controls.target.add(delta);
+      controls.update();
+    }
+
+    function dollyView(deltaY, multiplier = 1) {
+      const distance = camera.position.distanceTo(controls.target);
+      const amount = Math.max(512, distance * 0.16) * multiplier;
+      const direction = new THREE.Vector3();
+      camera.getWorldDirection(direction);
+      const signedAmount = deltaY > 0 ? -amount : amount;
+      const delta = direction.multiplyScalar(signedAmount);
+      camera.position.add(delta);
+      controls.target.add(delta);
+      controls.update();
+    }
+
+    function drivingAxes(plane) {
+      const xAxis = projectedTangent(new THREE.Vector3(1, 0, 0), plane.normal);
+      let zAxis = projectedTangent(new THREE.Vector3(0, 0, -1), plane.normal, new THREE.Vector3(0, 0, -1));
+      if (Math.abs(xAxis.dot(zAxis)) > 0.94) {
+        zAxis = new THREE.Vector3().crossVectors(plane.normal, xAxis).normalize();
+        if (zAxis.z > 0) zAxis.negate();
+      }
+      return { xAxis, zAxis, normal: plane.normal.clone() };
+    }
+
+    function setCameraParallelToRoad(road, preserveDirection = false) {
+      if (!road) return false;
+      driving.lastRoadPoly = road.poly;
+      const planePoint = road.plane.projectPoint(camera.position, new THREE.Vector3());
+      camera.position.copy(planePoint).add(road.plane.normal.clone().multiplyScalar(driving.height));
+      let direction = new THREE.Vector3();
+      if (preserveDirection) camera.getWorldDirection(direction);
+      direction = projectedTangent(direction.lengthSq() ? direction : new THREE.Vector3(0, 0, -1), road.plane.normal, drivingAxes(road.plane).zAxis);
+      controls.target.copy(camera.position).add(direction.multiplyScalar(driving.targetDistance));
+      controls.update();
+      return true;
+    }
+
+    function enableDrivingMode() {
+      const road = nearestRoadAt(camera.position);
+      if (!road) {
+        document.getElementById("info").textContent = "Driving mode needs a visible or loaded road polygon.";
+        document.getElementById("drivingMode").checked = false;
+        driving.enabled = false;
+        updateDrivingModeButton();
+        return;
+      }
+      driving.enabled = true;
+      const signed = road.plane.distanceToPoint(camera.position);
+      driving.height = Math.max(384, Math.min(2048, Math.abs(signed) || driving.height));
+      setCameraParallelToRoad(road, false);
+      updateDrivingModeButton();
+    }
+
+    function disableDrivingMode() {
+      driving.enabled = false;
+      driving.lastRoadPoly = null;
+      updateDrivingModeButton();
+    }
+
+    function updateDrivingModeButton() {
+      const button = document.getElementById("drivingModeButton");
+      if (!button) return;
+      button.classList.toggle("on", driving.enabled);
+      button.classList.toggle("off", !driving.enabled);
+      button.textContent = driving.enabled ? "Driving Mode: On" : "Driving Mode: Off";
+    }
+
+    function maintainDrivingHeight() {
+      if (!driving.enabled) return;
+      const road = nearestRoadAt(camera.position);
+      if (!road) return;
+      driving.lastRoadPoly = road.poly;
+      const delta = driving.height - road.plane.distanceToPoint(camera.position);
+      const lift = road.plane.normal.clone().multiplyScalar(delta);
+      camera.position.add(lift);
+      controls.target.add(lift);
+      controls.update();
+    }
+
+    function recenterDrivingCamera() {
+      const road = nearestRoadAt(camera.position);
+      if (!road) return false;
+      return setCameraParallelToRoad(road, true);
+    }
+
+    function drivingMove(dx, dz, dy = 0, yaw = 0) {
+      const road = nearestRoadAt(camera.position);
+      if (!road) return false;
+      const axes = drivingAxes(road.plane);
+      const cameraForward = new THREE.Vector3();
+      camera.getWorldDirection(cameraForward);
+      const forward = projectedTangent(cameraForward, road.plane.normal, axes.zAxis);
+      const right = projectedTangent(new THREE.Vector3().crossVectors(forward, road.plane.normal), road.plane.normal, axes.xAxis);
+      if (dy) driving.height = Math.max(64, driving.height + dy);
+      const delta = new THREE.Vector3()
+        .addScaledVector(right, dx)
+        .addScaledVector(forward, dz)
+        .addScaledVector(axes.normal, dy);
+      camera.position.add(delta);
+      controls.target.add(delta);
+      if (yaw) {
+        const direction = new THREE.Vector3().subVectors(controls.target, camera.position);
+        direction.applyAxisAngle(axes.normal, yaw);
+        controls.target.copy(camera.position).add(direction);
+      }
+      maintainDrivingHeight();
+      return true;
+    }
+
+    function recenterView() {
+      if (driving.enabled && recenterDrivingCamera()) return;
+      controls.target.set(0, 0, 0);
+      camera.position.set(0, 7000, 12000);
+      camera.near = 1;
+      camera.far = 200000;
+      camera.updateProjectionMatrix();
+      controls.update();
+    }
+
+    function zoomCandidatePolygons() {
+      if (!course) return [];
+      const selected = document.getElementById("section").value;
+      const targetSection = selected === "" ? null : Number(selected);
+      let polys = course.polygons.filter(poly => {
+        if (targetSection !== null && polySection(poly) !== targetSection) return false;
+        if (targetSection === null && visibleSections.size && !sectionVisible(poly)) return false;
+        return highVariantMatches(poly) && polygonMatches(poly);
+      });
+      if (polys.length) return polys;
+      return course.polygons.filter(poly => targetSection === null || polySection(poly) === targetSection);
+    }
+
+    function zoomToCourseSection() {
+      const polys = zoomCandidatePolygons();
+      if (!polys.length) {
+        document.getElementById("info").textContent = "No polygons available for that section.";
+        return;
+      }
+      const min = { x: Infinity, y: Infinity, z: Infinity };
+      const max = { x: -Infinity, y: -Infinity, z: -Infinity };
+      for (const poly of polys) {
+        for (const p of polygonWorldVertices(poly)) {
+          min.x = Math.min(min.x, p.x); min.y = Math.min(min.y, p.y); min.z = Math.min(min.z, p.z);
+          max.x = Math.max(max.x, p.x); max.y = Math.max(max.y, p.y); max.z = Math.max(max.z, p.z);
+        }
+      }
+      const center = new THREE.Vector3(
+        (min.x + max.x) / 2,
+        (min.y + max.y) / 2,
+        -(min.z + max.z) / 2
+      );
+      const size = new THREE.Vector3(max.x - min.x, max.y - min.y, max.z - min.z);
+      const radius = Math.max(800, size.length() * 0.5);
+      const direction = new THREE.Vector3().subVectors(camera.position, controls.target);
+      if (direction.lengthSq() < 1) direction.set(0, 0.5, 1);
+      direction.normalize();
+      controls.target.copy(center);
+      camera.position.copy(center).add(direction.multiplyScalar(radius * 2.4));
+      camera.near = 1;
+      camera.far = Math.max(200000, radius * 12);
+      camera.updateProjectionMatrix();
+      controls.update();
+    }
+
+    function updateTransformInfo() {
+      const target = editableTransformTarget(lastPickedPoly);
+      if (!target) return;
+      const scope = target.entry === null ? "all banks" : `${bankNames[target.entry] || target.entry} bank`;
+      document.getElementById("info").textContent =
+        `active section ${target.section} (${scope})\nflatten=${flattenSelected.size} delete=${deleteSelected.size}\nUse Flatten or Delete mode to mark polygons for CSV export.`;
+    }
+
+    function selectionMode() {
+      return document.getElementById("selectionMode").value;
+    }
+
+    function polyHighlight(poly) {
+      if (snapSourcePoly && poly.id === snapSourcePoly.id) return { color: 0xff9b00, opacity: 0.88, edge: 0xffffff };
+      if (snapTargetPoly && poly.id === snapTargetPoly.id) return { color: 0x00e5ff, opacity: 0.88, edge: 0xffffff };
+      if (deleteSelected.has(poly.id)) return { color: 0xff00d4, opacity: 0.78, edge: 0xffffff };
+      if (flattenSelected.has(poly.id)) return { color: 0xff2020, opacity: 0.82, edge: 0xffffff };
+      if (activeSection !== null && polySection(poly) === activeSection && !textureSelectedSectionEnabled()) return { color: 0xffff40, opacity: 0.34, edge: 0xffff40 };
+      return null;
+    }
+
+    function makeMesh(poly) {
+      const verts = [];
+      for (const p of poly.vertices) verts.push(p[0], p[1], -p[2]);
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute("position", new THREE.Float32BufferAttribute(verts, 3));
+      geometry.setAttribute("uv", new THREE.Float32BufferAttribute([0, 1, 1, 1, 1, 0, 0, 0], 2));
+      geometry.setIndex([0, 1, 2, 0, 2, 3]);
+      geometry.computeVertexNormals();
+      const highlight = polyHighlight(poly);
+      const flatPreviewColor = previewFlatColor(poly);
+      const texture = shouldTexturePoly(poly) ? textureForPoly(poly) : null;
+      const material = new THREE.MeshBasicMaterial({
+        color: texture ? 0xffffff : (flatPreviewColor !== null ? flatPreviewColor : (highlight ? highlight.color : polygonColor(poly))),
+        map: texture,
+        side: THREE.DoubleSide,
+        transparent: true,
+        alphaTest: texture ? 0.5 : 0,
+        opacity: texture ? 1.0 : (flatPreviewColor !== null ? 0.94 : (highlight ? highlight.opacity : 0.22)),
+        wireframe: false,
+      });
+      const mesh = new THREE.Mesh(geometry, material);
+      mesh.userData.poly = poly;
+      mesh.userData.section = polySection(poly);
+      mesh.userData.entry = Number(poly.entry);
+      applyMeshTransform(mesh);
+      if ((texture || flatPreviewColor !== null) && highlight) {
+        const overlay = new THREE.Mesh(
+          geometry,
+          new THREE.MeshBasicMaterial({
+            color: highlight.color,
+            side: THREE.DoubleSide,
+            transparent: true,
+            opacity: Math.min(0.62, Math.max(0.42, highlight.opacity * 0.62)),
+            depthTest: false,
+            depthWrite: false,
+            polygonOffset: true,
+            polygonOffsetFactor: -4,
+            polygonOffsetUnits: -4,
+          })
+        );
+        overlay.raycast = () => {};
+        overlay.renderOrder = 20;
+        mesh.add(overlay);
+      }
+      const edges = new THREE.LineSegments(
+        new THREE.EdgesGeometry(geometry),
+        new THREE.LineBasicMaterial({ color: highlight ? highlight.edge : 0x1010ff })
+      );
+      mesh.add(edges);
+      return mesh;
+    }
+
+    function rebuildScene() {
+      for (const mesh of meshes) {
+        group.remove(mesh);
+        mesh.geometry.dispose();
+        mesh.material.dispose();
+        for (const child of mesh.children) {
+          if (child.geometry) child.geometry.dispose();
+          if (child.material) child.material.dispose();
+        }
+      }
+      meshes = [];
+      if (!course) return;
+      const polys = course.polygons.filter(poly => sectionVisible(poly) && highVariantMatches(poly) && polygonMatches(poly));
+      for (const poly of polys) {
+        const mesh = makeMesh(poly);
+        meshes.push(mesh);
+        group.add(mesh);
+      }
+      rebuildDrivingRoadCache();
+      const section = document.getElementById("section").value;
+      const transformText = course.viewer_transform
+        ? `\nloaded=${course.viewer_transform.type}\ntransformed=${course.viewer_transform.transformed_polygons}`
+        : "";
+      const previewBanks = [0, 1, 2].filter(entry => previewDefaultFlatBankEnabled(entry)).map(entry => bankNames[entry]).join(",") || "none";
+      const flatPreviewText = `\nflat_color_rules=${flatColorRules.size} flat_preview=${previewFlattenRulesEnabled() ? "on" : "off"} preview_default_flat=${previewBanks}`;
+      const drivingText = `\ndriving=${driving.enabled ? "on" : "off"} road_candidates=${drivingRoadCache.length}`;
+      document.getElementById("info").textContent =
+        `${polys.length} visible polygons\nmode=${selectionMode()}\nflatten=${flattenSelected.size} delete=${deleteSelected.size}\nloaded_sections=${[...visibleSections].sort((a, b) => a - b).join(",") || "none"}\nchosen=${section || "all"}\nactive_section=${activeEditSection() ?? "none"}\nhigh_variant=${document.getElementById("highVariant").value || "both"}${flatPreviewText}${drivingText}${transformText}`;
+      updateTransformInfo();
+    }
+
+    function loadTransformsFromData(data) {
+      sectionTransforms.clear();
+      for (const [section, t] of Object.entries(data.sections || {})) {
+        sectionTransforms.set(transformKey(section), { tx: Number(t.tx || 0), tz: Number(t.tz || 0), rot: Number(t.rot || 0) });
+      }
+      for (const [sectionEntry, t] of Object.entries(data.bank_sections || {})) {
+        const [section, entry] = sectionEntry.split("|");
+        sectionTransforms.set(transformKey(section, entry), { tx: Number(t.tx || 0), tz: Number(t.tz || 0), rot: Number(t.rot || 0) });
+      }
+    }
+
+    async function loadCourseData(data, label = "course", options = {}) {
+      course = data;
+      courseName = (label || "course").replace(/_geometry\.json$/i, "").replace(/[^A-Za-z0-9_]+/g, "_").toLowerCase();
+      flattenSelected.clear();
+      deleteSelected.clear();
+      rebuildPolyLookup();
+      visibleSections.clear();
+      sectionTransforms.clear();
+      if (options.transforms) loadTransformsFromData(options.transforms);
+      lastPickedPoly = null;
+      snapSourcePoly = null;
+      snapTargetPoly = null;
+      lastAddedSection = null;
+      activeSection = null;
+      const sectionSelect = document.getElementById("section");
+      sectionSelect.textContent = "";
+      const all = document.createElement("option");
+      all.value = "";
+      all.textContent = "All sections";
+      sectionSelect.appendChild(all);
+      for (const section of course.sections || []) {
+        const option = document.createElement("option");
+        option.value = String(section.section);
+        const counts = Object.entries(section.banks || {})
+          .map(([bank, models]) => `${bank[0]}:${models.length}`)
+          .join(" ");
+        option.textContent = `Section ${String(section.section).padStart(2, "0")} (${counts})`;
+        sectionSelect.appendChild(option);
+      }
+      rebuildScene();
+    }
+
+    async function loadFile(file) {
+      await loadCourseData(JSON.parse(await file.text()), file.name);
+    }
+
+    async function loadCourseFromList() {
+      const select = document.getElementById("courseJson");
+      if (!select.value) return;
+      const response = await fetch(`geometry/${select.value}?v=${Date.now()}`);
+      if (!response.ok) throw new Error(`failed to load ${select.value}: ${response.status}`);
+      const transformFile = select.options[select.selectedIndex].dataset.transform;
+      const transformResponse = await fetch(`transform/${transformFile}?v=${Date.now()}`);
+      if (!transformResponse.ok) throw new Error(`failed to load ${transformFile}: ${transformResponse.status}`);
+      const data = await response.json();
+      const transforms = await transformResponse.json();
+      await loadCourseData(data, select.options[select.selectedIndex].dataset.course || select.value, { transforms });
+      await loadDefaultFlatColorCsv(select.options[select.selectedIndex].dataset.course || "");
+    }
+
+    async function refreshCourseList() {
+      const select = document.getElementById("courseJson");
+      const previous = select.value;
+      select.textContent = "";
+      const loading = document.createElement("option");
+      loading.value = "";
+      loading.textContent = "Select course";
+      select.appendChild(loading);
+      try {
+        const response = await fetch(`geometry/geometry_index.json?v=${Date.now()}`);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const index = await response.json();
+        for (const item of index.courses || []) {
+          const stem = item.file.replace(/\.json$/i, "");
+          const transformFile = `${stem}_transform.json`;
+          const transformResponse = await fetch(`transform/${transformFile}?v=${Date.now()}`, { method: "HEAD" });
+          if (!transformResponse.ok) continue;
+          const option = document.createElement("option");
+          option.value = item.file;
+          option.dataset.transform = transformFile;
+          option.dataset.course = item.course;
+          option.textContent = `${item.course} (${item.polygons} polys${item.warnings ? `, ${item.warnings} warning` : ""})`;
+          select.appendChild(option);
+        }
+        if ([...select.options].some(option => option.value === previous)) select.value = previous;
+        else if (select.options.length === 2) {
+          select.selectedIndex = 1;
+          loadCourseFromList().catch(error => {
+            document.getElementById("info").textContent = `Course load failed:\n${error}`;
+          });
+        }
+      } catch (error) {
+        const option = document.createElement("option");
+        option.value = "";
+        option.textContent = "Course list unavailable";
+        select.appendChild(option);
+        console.warn(error);
+      }
+    }
+
+    function handleSectionClick(poly) {
+      lastPickedPoly = poly;
+      const section = polySection(poly);
+      if (section !== null) {
+        activeSection = section;
+        document.getElementById("section").value = String(section);
+      }
+      rebuildScene();
+      updateTransformInfo();
+    }
+
+    function handleSnappingClick(poly) {
+      lastPickedPoly = poly;
+      if (!snapTargetPoly || (snapTargetPoly && snapSourcePoly)) {
+        snapTargetPoly = poly;
+        snapSourcePoly = null;
+      } else {
+        snapSourcePoly = poly;
+        const section = polySection(poly);
+        if (section !== null) {
+          activeSection = section;
+          document.getElementById("section").value = String(section);
+        }
+      }
+      rebuildScene();
+      updateTransformInfo();
+    }
+
+    function toggleMapSelection(map, poly) {
+      lastPickedPoly = poly;
+      if (map.has(poly.id)) map.delete(poly.id);
+      else map.set(poly.id, poly);
+      rebuildScene();
+      showPolyInfo(poly);
+    }
+
+    function showPolyInfo(poly) {
+      document.getElementById("info").textContent =
+        `mode=${selectionMode()}\nflatten=${flattenSelected.size} delete=${deleteSelected.size}\n` +
+        `id=${poly.id}\nentry=${poly.entry} ${poly.bank}\nsection=${polySection(poly)}\nmodel=${poly.model_index}\npolygon=${poly.polygon_index}\nrecord=${poly.record_offset}\nsource=${poly.source}\nsize=${poly.width}x${poly.height}\nselector=${poly.selector}\nlocation=${poly.location || ""}\narea_xz=${poly.area_xz}\nmax_edge_xz=${poly.max_edge_xz}`;
+    }
+
+    function parseCsv(text) {
+      const rows = [];
+      let row = [];
+      let field = "";
+      let quoted = false;
+      for (let i = 0; i < text.length; i++) {
+        const ch = text[i];
+        if (quoted) {
+          if (ch === '"' && text[i + 1] === '"') {
+            field += '"';
+            i++;
+          } else if (ch === '"') {
+            quoted = false;
+          } else {
+            field += ch;
+          }
+        } else if (ch === '"') {
+          quoted = true;
+        } else if (ch === ",") {
+          row.push(field);
+          field = "";
+        } else if (ch === "\n" || ch === "\r") {
+          if (ch === "\r" && text[i + 1] === "\n") i++;
+          row.push(field);
+          if (row.some(value => value.trim() !== "")) rows.push(row);
+          row = [];
+          field = "";
+        } else {
+          field += ch;
+        }
+      }
+      row.push(field);
+      if (row.some(value => value.trim() !== "")) rows.push(row);
+      if (!rows.length) return [];
+      const headers = rows[0].map(value => value.trim());
+      return rows.slice(1).map(values => {
+        const item = {};
+        headers.forEach((header, index) => item[header] = (values[index] || "").trim());
+        return item;
+      });
+    }
+
+    function rowPolyLookupKeys(row) {
+      const entry = row.entry === undefined || row.entry === "" ? "0" : String(Number(row.entry));
+      const model = row.model_index === undefined || row.model_index === "" ? "" : String(Number(row.model_index));
+      const polygon = row.polygon_index === undefined || row.polygon_index === "" ? "" : String(Number(row.polygon_index));
+      const record = normalizeHexText(row.record_offset, 5);
+      const keys = [];
+      if (model !== "" && polygon !== "") keys.push(`${entry}|${model}|${polygon}`);
+      if (record) keys.push(`${entry}|${record}`);
+      if (model !== "" && polygon !== "" && record) keys.push(`${entry}|${model}|${polygon}|${record}`);
+      return keys;
+    }
+
+    async function importSelectionCsv(file, map, label) {
+      if (!course) {
+        document.getElementById("info").textContent = "Load a geometry JSON before importing a polygon CSV.";
+        return;
+      }
+      const rows = parseCsv(await file.text());
+      let added = 0;
+      const missed = [];
+      for (const row of rows) {
+        let poly = null;
+        for (const key of rowPolyLookupKeys(row)) {
+          poly = polyLookup.get(key);
+          if (poly) break;
+        }
+        if (poly) {
+          map.set(poly.id, poly);
+          added++;
+        } else {
+          missed.push(row);
+        }
+      }
+      rebuildScene();
+      document.getElementById("info").textContent =
+        `Imported ${label} CSV\nrows=${rows.length}\nmatched=${added}\nmissed=${missed.length}` +
+        (missed.length ? `\nfirst_missed=${JSON.stringify(missed[0])}` : "");
+    }
+
+    function parseColorField(value) {
+      const text = String(value || "").trim();
+      if (!text) return null;
+      if (/^#?[0-9a-f]{6}$/i.test(text)) return Number.parseInt(text.replace("#", ""), 16);
+      if (/^0x[0-9a-f]+$/i.test(text) || /^[0-9a-f]{1,4}$/i.test(text)) return rgb555ToHex(text);
+      return null;
+    }
+
+    function loadFlatColorRows(rows, label = "flat color CSV") {
+      flatColorRules = new Map();
+      for (const row of rows) {
+        const source = rowFirst(row, ["source", "src", "texture_source"]);
+        if (!source) continue;
+        const selector = rowFirst(row, ["selector", "sel"]);
+        const width = rowFirst(row, ["width", "w"]);
+        const height = rowFirst(row, ["height", "h"]);
+        const colorText = rowFirst(row, [
+          "override_rgb555", "rgb555_override", "flat_rgb555", "selected_rgb555", "rgb555",
+          "override_hex", "flat_hex", "selected_hex", "color_hex", "hex"
+        ]);
+        const rule = {
+          color: parseColorField(colorText),
+          exempt: truthyCsv(row.exempt),
+          flatten: truthyCsv(row.flatten),
+          exemptMedium: truthyCsv(row.exempt_medium),
+          exemptLow: truthyCsv(row.exempt_low),
+          flattenMedium: truthyCsv(row.flatten_medium),
+          flattenLow: truthyCsv(row.flatten_low),
+          row,
+        };
+        for (const key of textureRuleKeys(source, selector, width, height)) flatColorRules.set(key, rule);
+      }
+      rebuildScene();
+      document.getElementById("info").textContent =
+        `Loaded ${label}\nrows=${rows.length}\nrules=${flatColorRules.size}\npreview=${previewFlattenRulesEnabled() ? "on" : "off"}`;
+    }
+
+    async function importFlatColorCsv(file) {
+      loadFlatColorRows(parseCsv(await file.text()), "flat color CSV");
+    }
+
+    async function loadDefaultFlatColorCsv(courseCode) {
+      flatColorRules = new Map();
+      if (!courseCode) {
+        rebuildScene();
+        return;
+      }
+      try {
+        const response = await fetch(`flat_colors/${courseCode}_flat_color_review.csv?v=${Date.now()}`);
+        if (!response.ok) {
+          rebuildScene();
+          return;
+        }
+        loadFlatColorRows(parseCsv(await response.text()), `${courseCode} flat color CSV`);
+      } catch (error) {
+        console.warn(error);
+        rebuildScene();
+      }
+    }
+
+    function handlePolygonClick(poly, event = null) {
+      if (event && event.shiftKey) {
+        handleSectionClick(poly);
+        return;
+      }
+      const mode = selectionMode();
+      if (mode === "section") handleSectionClick(poly);
+      else if (mode === "snapping") handleSnappingClick(poly);
+      else if (mode === "flatten") toggleMapSelection(flattenSelected, poly);
+      else if (mode === "delete") toggleMapSelection(deleteSelected, poly);
+    }
+
+    renderer.domElement.addEventListener("pointerdown", (event) => {
+      pointerDown = { x: event.clientX, y: event.clientY };
+    });
+    renderer.domElement.addEventListener("click", (event) => {
+      if (pointerDown) {
+        const dx = event.clientX - pointerDown.x;
+        const dy = event.clientY - pointerDown.y;
+        pointerDown = null;
+        if (Math.hypot(dx, dy) > 4) return;
+      }
+      pointer.x = (event.clientX / innerWidth) * 2 - 1;
+      pointer.y = -(event.clientY / innerHeight) * 2 + 1;
+      raycaster.setFromCamera(pointer, camera);
+      const hits = raycaster.intersectObjects(meshes, false);
+      if (hits.length) handlePolygonClick(hits[0].object.userData.poly, event);
+    });
+    renderer.domElement.addEventListener("wheel", (event) => {
+      const multiplier = event.shiftKey ? 4 : (event.ctrlKey ? 0.25 : 1);
+      if (driving.enabled) drivingMove(0, 0, event.deltaY > 0 ? -DRIVE_HEIGHT_STEP * multiplier : DRIVE_HEIGHT_STEP * multiplier);
+      else dollyView(event.deltaY, multiplier);
+      event.preventDefault();
+    }, { passive: false });
+
+    document.getElementById("file").addEventListener("change", e => {
+      if (e.target.files.length) loadFile(e.target.files[0]);
+    });
+    document.getElementById("loadCourseJson").addEventListener("click", () => {
+      loadCourseFromList().catch(error => {
+        document.getElementById("info").textContent = `Course load failed:\n${error}`;
+      });
+    });
+    document.getElementById("courseJson").addEventListener("change", () => {
+      loadCourseFromList().catch(error => {
+        document.getElementById("info").textContent = `Course load failed:\n${error}`;
+      });
+    });
+    document.getElementById("refreshCourseJson").addEventListener("click", refreshCourseList);
+    document.getElementById("apply").addEventListener("click", rebuildScene);
+    document.getElementById("addSection").addEventListener("click", addChosenSections);
+    document.getElementById("removeSection").addEventListener("click", removeChosenSections);
+    document.getElementById("clearAll").addEventListener("click", clearVisibleSections);
+    document.getElementById("recenterView").addEventListener("click", recenterView);
+    document.getElementById("zoomSection").addEventListener("click", zoomToCourseSection);
+    document.getElementById("drivingMode").addEventListener("change", e => {
+      if (e.target.checked) enableDrivingMode();
+      else disableDrivingMode();
+    });
+    document.getElementById("drivingModeButton").addEventListener("click", () => {
+      const checkbox = document.getElementById("drivingMode");
+      checkbox.checked = !driving.enabled;
+      if (checkbox.checked) enableDrivingMode();
+      else disableDrivingMode();
+    });
+    document.getElementById("highVariant").addEventListener("change", rebuildScene);
+    document.getElementById("textureSelectedSection").addEventListener("change", rebuildScene);
+    document.getElementById("previewFlattenRules").addEventListener("change", rebuildScene);
+    for (const entry of [0, 1, 2]) {
+      document.getElementById("previewFlatBank" + entry).addEventListener("change", rebuildScene);
+    }
+    document.getElementById("selectionMode").addEventListener("change", rebuildScene);
+    document.getElementById("transformScope").addEventListener("change", updateTransformInfo);
+    document.getElementById("clearSelection").addEventListener("click", () => {
+      const mode = selectionMode();
+      if (mode === "flatten") flattenSelected.clear();
+      else if (mode === "delete") deleteSelected.clear();
+      else if (mode === "snapping") {
+        snapSourcePoly = null;
+        snapTargetPoly = null;
+      } else {
+        activeSection = null;
+        document.getElementById("section").value = "";
+      }
+      rebuildScene();
+    });
+    document.getElementById("snapSection").addEventListener("click", snapSourceEdgeToTargetEdge);
+    document.getElementById("exportTransforms").addEventListener("click", () => {
+      const sections = {};
+      const bankSections = {};
+      for (const [key, t] of sectionTransforms.entries()) {
+        if (!t.tx && !t.tz && !t.rot) continue;
+        const parsed = parseTransformKey(key);
+        if (!parsed) continue;
+        const out = { tx: t.tx, tz: t.tz, rot: t.rot };
+        if (parsed.entry === null) sections[String(parsed.section)] = out;
+        else bankSections[`${parsed.section}|${parsed.entry}`] = out;
+      }
+      const blob = new Blob([JSON.stringify({ type: "course2_manual_section_transforms_v2", sections, bank_sections: bankSections }, null, 2) + "\n"], { type: "application/json" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `${courseName}_manual_section_transforms.json`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    });
+    document.getElementById("importTransforms").addEventListener("change", async e => {
+      if (!e.target.files.length) return;
+      const data = JSON.parse(await e.target.files[0].text());
+      sectionTransforms.clear();
+      for (const [section, t] of Object.entries(data.sections || {})) {
+        sectionTransforms.set(transformKey(section), { tx: Number(t.tx || 0), tz: Number(t.tz || 0), rot: Number(t.rot || 0) });
+      }
+      for (const [sectionEntry, t] of Object.entries(data.bank_sections || {})) {
+        const [section, entry] = sectionEntry.split("|");
+        sectionTransforms.set(transformKey(section, entry), { tx: Number(t.tx || 0), tz: Number(t.tz || 0), rot: Number(t.rot || 0) });
+      }
+      applyAllTransforms();
+    });
+    document.getElementById("importFlatCsv").addEventListener("change", async e => {
+      if (!e.target.files.length) return;
+      await importSelectionCsv(e.target.files[0], flattenSelected, "flatten");
+      e.target.value = "";
+    });
+    document.getElementById("importDeleteCsv").addEventListener("change", async e => {
+      if (!e.target.files.length) return;
+      await importSelectionCsv(e.target.files[0], deleteSelected, "delete");
+      e.target.value = "";
+    });
+    document.getElementById("importFlatColorCsv").addEventListener("change", async e => {
+      if (!e.target.files.length) return;
+      await importFlatColorCsv(e.target.files[0]);
+      e.target.value = "";
+    });
+    document.getElementById("download").addEventListener("click", () => {
+      const rows = ["entry,bank,model_index,polygon_index,record_offset,source,width,height,selector,location,reason"];
+      for (const poly of flattenSelected.values()) {
+        const values = [poly.entry, poly.bank, poly.model_index, poly.polygon_index, poly.record_offset, poly.source, poly.width, poly.height, poly.selector, poly.location || "", "viewer_flatten"];
+        rows.push(values.map(v => `"${String(v).replaceAll('"', '""')}"`).join(","));
+      }
+      const blob = new Blob([rows.join("\n") + "\n"], { type: "text/csv" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `${courseName}_force_flat_polygons.csv`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    });
+    document.getElementById("downloadDelete").addEventListener("click", () => {
+      const rows = ["entry,bank,model_index,polygon_index,record_offset,source,width,height,selector,location,reason"];
+      for (const poly of deleteSelected.values()) {
+        const values = [poly.entry, poly.bank, poly.model_index, poly.polygon_index, poly.record_offset, poly.source, poly.width, poly.height, poly.selector, poly.location || "", "viewer_delete"];
+        rows.push(values.map(v => `"${String(v).replaceAll('"', '""')}"`).join(","));
+      }
+      const blob = new Blob([rows.join("\n") + "\n"], { type: "text/csv" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `${courseName}_delete_polygons.csv`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    });
+    document.body.addEventListener("dragover", e => e.preventDefault());
+    document.body.addEventListener("drop", e => {
+      e.preventDefault();
+    });
+    document.body.addEventListener("keydown", e => {
+      if (["INPUT", "TEXTAREA"].includes(e.target.tagName)) return;
+      if (driving.enabled) {
+        const move = DRIVE_MOVE_STEP * (e.shiftKey ? 4 : (e.ctrlKey ? 0.25 : 1));
+        const height = DRIVE_HEIGHT_STEP * (e.shiftKey ? 4 : (e.ctrlKey ? 0.25 : 1));
+        const yaw = DRIVE_YAW_STEP * (e.shiftKey ? 4 : (e.ctrlKey ? 0.25 : 1));
+        if (e.key === "ArrowLeft") drivingMove(0, 0, 0, yaw);
+        else if (e.key === "ArrowRight") drivingMove(0, 0, 0, -yaw);
+        else if (e.key === "ArrowUp") drivingMove(0, 0, height);
+        else if (e.key === "ArrowDown") drivingMove(0, 0, -height);
+        else if (e.key.toLowerCase() === "a") drivingMove(-move, 0);
+        else if (e.key.toLowerCase() === "d") drivingMove(move, 0);
+        else if (e.key.toLowerCase() === "w") drivingMove(0, move);
+        else if (e.key.toLowerCase() === "s") drivingMove(0, -move);
+        else return;
+        e.preventDefault();
+        return;
+      }
+      const panMultiplier = e.shiftKey ? 4 : (e.ctrlKey ? 0.25 : 1);
+      if (e.key === "ArrowLeft") panView(-1, 0, panMultiplier);
+      else if (e.key === "ArrowRight") panView(1, 0, panMultiplier);
+      else if (e.key === "ArrowUp") panView(0, 1, panMultiplier);
+      else if (e.key === "ArrowDown") panView(0, -1, panMultiplier);
+      else return;
+      e.preventDefault();
+    });
+    addEventListener("resize", () => {
+      camera.aspect = innerWidth / innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(innerWidth, innerHeight);
+    });
+    function animate() {
+      requestAnimationFrame(animate);
+      maintainDrivingHeight();
+      renderer.render(scene, camera);
+    }
+    animate();
+    refreshCourseList();
+  </script>
+</body>
+</html>
