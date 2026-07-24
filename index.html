@@ -465,24 +465,30 @@
       return { tx: 0, tz: 0, rot: 0 };
     }
 
-    function transformKey(section, entry = null) {
+    function transformKey(section, entry = null, table = null) {
       if (section === null || section === undefined) return "";
-      if (entry === null || entry === undefined || entry === "") return `s:${Number(section)}`;
-      return `s:${Number(section)}:b:${Number(entry)}`;
+      let key = `s:${Number(section)}`;
+      if (entry !== null && entry !== undefined && entry !== "") key += `:b:${Number(entry)}`;
+      if (table !== null && table !== undefined && table !== "") key += `:t:${Number(table)}`;
+      return key;
     }
 
     function parseTransformKey(key) {
       const text = String(key);
-      const match = /^s:(-?\d+)(?::b:(\d+))?$/.exec(text);
-      if (match) return { section: Number(match[1]), entry: match[2] === undefined ? null : Number(match[2]) };
-      if (/^-?\d+$/.test(text)) return { section: Number(text), entry: null };
+      const match = /^s:(-?\d+)(?::b:(\d+))?(?::t:(\d+))?$/.exec(text);
+      if (match) return {
+        section: Number(match[1]),
+        entry: match[2] === undefined ? null : Number(match[2]),
+        table: match[3] === undefined ? null : Number(match[3]),
+      };
+      if (/^-?\d+$/.test(text)) return { section: Number(text), entry: null, table: null };
       return null;
     }
 
-    function getTransform(section, entry = null) {
+    function getTransform(section, entry = null, table = null) {
       if (section === null || section === undefined) return identityTransform();
-      const key = transformKey(section, entry);
-      if (!sectionTransforms.has(key) && entry === null && sectionTransforms.has(Number(section))) {
+      const key = transformKey(section, entry, table);
+      if (!sectionTransforms.has(key) && entry === null && table === null && sectionTransforms.has(Number(section))) {
         sectionTransforms.set(key, sectionTransforms.get(Number(section)));
         sectionTransforms.delete(Number(section));
       }
@@ -490,11 +496,44 @@
       return sectionTransforms.get(key);
     }
 
-    function effectiveTransform(section, entry) {
+    function effectiveTransform(section, entry, table = null) {
       const base = getTransform(section);
       if (entry === null || entry === undefined) return { ...base };
       const bank = getTransform(section, entry);
-      return { tx: base.tx + bank.tx, tz: base.tz + bank.tz, rot: base.rot + bank.rot };
+      const highTable = entry === 0 && table !== null && table !== undefined ? getTransform(section, entry, table) : identityTransform();
+      return {
+        tx: base.tx + bank.tx + highTable.tx,
+        tz: base.tz + bank.tz + highTable.tz,
+        rot: base.rot + bank.rot + highTable.rot,
+      };
+    }
+
+    function highTablesForPoly(poly) {
+      if (!poly || Number(poly.entry) !== 0) return [null];
+      const refs = poly.table_refs || [];
+      const tables = [...new Set(
+        refs
+          .map(ref => Number(ref.table))
+          .filter(table => Number.isFinite(table))
+      )].sort((a, b) => a - b);
+      return tables.length ? tables : [null];
+    }
+
+    function polyHighTable(poly) {
+      if (poly && poly._viewerTable !== undefined && poly._viewerTable !== null) return Number(poly._viewerTable);
+      if (!poly || Number(poly.entry) !== 0) return null;
+      const tables = highTablesForPoly(poly).filter(table => table !== null);
+      return tables.length === 1 ? tables[0] : null;
+    }
+
+    function renderInstancesForPoly(poly) {
+      if (Number(poly.entry) !== 0) return [poly];
+      const selectedTable = document.getElementById("highVariant").value;
+      const tables = highTablesForPoly(poly);
+      const visibleTables = selectedTable === ""
+        ? tables
+        : tables.filter(table => String(table) === selectedTable);
+      return visibleTables.map(table => ({ ...poly, _viewerTable: table }));
     }
 
     function transformScopeEntry(poly = null) {
@@ -513,7 +552,7 @@
 
     function applyMeshTransform(mesh) {
       const section = mesh.userData.section;
-      const t = effectiveTransform(section, mesh.userData.entry);
+      const t = effectiveTransform(section, mesh.userData.entry, mesh.userData.table);
       mesh.position.set(t.tx, 0, -t.tz);
       mesh.rotation.y = THREE.MathUtils.degToRad(t.rot);
     }
@@ -524,8 +563,8 @@
       updateTransformInfo();
     }
 
-    function transformPoint(section, point, transform = null, entry = null) {
-      const t = transform || effectiveTransform(section, entry);
+    function transformPoint(section, point, transform = null, entry = null, table = null) {
+      const t = transform || effectiveTransform(section, entry, table);
       const theta = THREE.MathUtils.degToRad(t.rot);
       const c = Math.cos(theta);
       const s = Math.sin(theta);
@@ -538,7 +577,7 @@
 
     function polygonWorldVertices(poly, transform = null) {
       const section = polySection(poly);
-      return poly.vertices.map(point => transformPoint(section, point, transform, poly.entry));
+      return poly.vertices.map(point => transformPoint(section, point, transform, poly.entry, polyHighTable(poly)));
     }
 
     function polygonViewerVertices(poly) {
@@ -988,6 +1027,7 @@
       mesh.userData.poly = poly;
       mesh.userData.section = polySection(poly);
       mesh.userData.entry = Number(poly.entry);
+      mesh.userData.table = polyHighTable(poly);
       applyMeshTransform(mesh);
       if ((texture || flatPreviewColor !== null) && highlight) {
         const overlay = new THREE.Mesh(
@@ -1034,7 +1074,8 @@
         polygonMatches(poly) &&
         !(previewUserDeletePolygonsEnabled() && deleteSelected.has(poly.id))
       );
-      for (const poly of polys) {
+      const renderPolys = polys.flatMap(renderInstancesForPoly);
+      for (const poly of renderPolys) {
         const mesh = makeMesh(poly);
         meshes.push(mesh);
         group.add(mesh);
@@ -1048,7 +1089,7 @@
       const flatPreviewText = `\nflat_color_rules=${flatColorRules.size} flat_lod_banks=${previewBanks} user_flat_preview=${previewUserFlatPolygonsEnabled() ? "on" : "off"} user_delete_hidden=${previewUserDeletePolygonsEnabled() ? "on" : "off"}`;
       const drivingText = `\ndriving=${driving.enabled ? "on" : "off"} road_candidates=${drivingRoadCache.length}`;
       document.getElementById("info").textContent =
-        `${polys.length} visible polygons\nmode=${selectionMode()}\nflatten=${flattenSelected.size} delete=${deleteSelected.size}\nloaded_sections=${[...visibleSections].sort((a, b) => a - b).join(",") || "none"}\nchosen=${section || "all"}\nactive_section=${activeEditSection() ?? "none"}\nhigh_variant=${document.getElementById("highVariant").value || "both"}${flatPreviewText}${drivingText}${transformText}`;
+        `${renderPolys.length} visible polygons (${polys.length} source polygons)\nmode=${selectionMode()}\nflatten=${flattenSelected.size} delete=${deleteSelected.size}\nloaded_sections=${[...visibleSections].sort((a, b) => a - b).join(",") || "none"}\nchosen=${section || "all"}\nactive_section=${activeEditSection() ?? "none"}\nhigh_variant=${document.getElementById("highVariant").value || "both"}${flatPreviewText}${drivingText}${transformText}`;
       updateTransformInfo();
     }
 
@@ -1060,6 +1101,10 @@
       for (const [sectionEntry, t] of Object.entries(data.bank_sections || {})) {
         const [section, entry] = sectionEntry.split("|");
         sectionTransforms.set(transformKey(section, entry), { tx: Number(t.tx || 0), tz: Number(t.tz || 0), rot: Number(t.rot || 0) });
+      }
+      for (const [sectionEntryTable, t] of Object.entries(data.table_sections || {})) {
+        const [section, entry, table] = sectionEntryTable.split("|");
+        sectionTransforms.set(transformKey(section, entry, table), { tx: Number(t.tx || 0), tz: Number(t.tz || 0), rot: Number(t.rot || 0) });
       }
     }
 
@@ -1421,15 +1466,17 @@
     document.getElementById("exportTransforms").addEventListener("click", () => {
       const sections = {};
       const bankSections = {};
+      const tableSections = {};
       for (const [key, t] of sectionTransforms.entries()) {
         if (!t.tx && !t.tz && !t.rot) continue;
         const parsed = parseTransformKey(key);
         if (!parsed) continue;
         const out = { tx: t.tx, tz: t.tz, rot: t.rot };
-        if (parsed.entry === null) sections[String(parsed.section)] = out;
+        if (parsed.table !== null && parsed.table !== undefined) tableSections[`${parsed.section}|${parsed.entry}|${parsed.table}`] = out;
+        else if (parsed.entry === null) sections[String(parsed.section)] = out;
         else bankSections[`${parsed.section}|${parsed.entry}`] = out;
       }
-      const blob = new Blob([JSON.stringify({ type: "course2_manual_section_transforms_v2", sections, bank_sections: bankSections }, null, 2) + "\n"], { type: "application/json" });
+      const blob = new Blob([JSON.stringify({ type: "course_manual_section_transforms_v3", sections, bank_sections: bankSections, table_sections: tableSections }, null, 2) + "\n"], { type: "application/json" });
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
       a.download = `${courseName}_manual_section_transforms.json`;
@@ -1446,6 +1493,10 @@
       for (const [sectionEntry, t] of Object.entries(data.bank_sections || {})) {
         const [section, entry] = sectionEntry.split("|");
         sectionTransforms.set(transformKey(section, entry), { tx: Number(t.tx || 0), tz: Number(t.tz || 0), rot: Number(t.rot || 0) });
+      }
+      for (const [sectionEntryTable, t] of Object.entries(data.table_sections || {})) {
+        const [section, entry, table] = sectionEntryTable.split("|");
+        sectionTransforms.set(transformKey(section, entry, table), { tx: Number(t.tx || 0), tz: Number(t.tz || 0), rot: Number(t.rot || 0) });
       }
       applyAllTransforms();
     });
