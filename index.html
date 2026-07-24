@@ -116,6 +116,7 @@
       <select id="selectionMode">
         <option value="section">Section</option>
         <option value="flatten">Flatten</option>
+        <option value="exempt">Flatten Exempt</option>
         <option value="delete">Delete</option>
       </select>
       <button id="clearSelection">Clear Selection</button>
@@ -146,11 +147,14 @@
     <h2>Import</h2>
     <label>Flat Polygon CSV</label>
     <input id="importFlatCsv" class="file-input" type="file" accept=".csv">
+    <label>Flatten Exempt Polygon CSV</label>
+    <input id="importExemptCsv" class="file-input" type="file" accept=".csv">
     <label>Delete Polygon CSV</label>
     <input id="importDeleteCsv" class="file-input" type="file" accept=".csv">
     <p class="hint">Imported CSVs are only loaded into this browser session so you can review, edit, and export them again.</p>
     <h2>Export</h2>
     <button id="download">Export Flat Polygon CSV</button>
+    <button id="downloadExempt">Export Flatten Exempt CSV</button>
     <button id="downloadDelete">Export Delete Polygon CSV</button>
   </div>
   <div id="panelDock" aria-label="Hidden panels">
@@ -205,6 +209,7 @@
     let courseName = "course";
     let meshes = [];
     const flattenSelected = new Map();
+    const exemptSelected = new Map();
     const deleteSelected = new Map();
     let polyLookup = new Map();
     let flatColorRules = new Map();
@@ -474,6 +479,7 @@
     function shouldPreviewFlatPoly(poly) {
       if (previewUserDeletePolygonsEnabled() && deleteSelected.has(poly.id)) return false;
       if (previewUserFlatPolygonsEnabled() && flattenSelected.has(poly.id)) return true;
+      if (exemptSelected.has(poly.id)) return false;
       return previewDefaultFlatBankEnabled(poly.entry);
     }
 
@@ -1022,7 +1028,7 @@
       if (!target) return;
       const scope = target.entry === null ? "all banks" : `${bankNames[target.entry] || target.entry} bank`;
       document.getElementById("info").textContent =
-        `active section ${target.section} (${scope})\nflatten=${flattenSelected.size} delete=${deleteSelected.size}\nUse Flatten or Delete mode to mark polygons for CSV export.`;
+        `active section ${target.section} (${scope})\nflatten=${flattenSelected.size} exempt=${exemptSelected.size} delete=${deleteSelected.size}\nUse Flatten, Flatten Exempt, or Delete mode to mark polygons for CSV export.`;
     }
 
     function selectionMode() {
@@ -1034,6 +1040,7 @@
       if (snapTargetPoly && poly.id === snapTargetPoly.id) return { color: 0x00e5ff, opacity: 0.88, edge: 0xffffff };
       if (!previewUserDeletePolygonsEnabled() && deleteSelected.has(poly.id)) return { color: 0xff00d4, opacity: 0.78, edge: 0xffffff };
       if (!previewUserFlatPolygonsEnabled() && flattenSelected.has(poly.id)) return { color: 0xff2020, opacity: 0.82, edge: 0xffffff };
+      if (exemptSelected.has(poly.id)) return { color: 0x22d07a, opacity: 0.74, edge: 0xffffff };
       if (activeSection !== null && polySection(poly) === activeSection && !textureSelectedSectionEnabled()) return { color: 0xffff40, opacity: 0.34, edge: 0xffff40 };
       return null;
     }
@@ -1124,7 +1131,7 @@
       const flatPreviewText = `\nflat_color_rules=${flatColorRules.size} flat_lod_banks=${previewBanks} user_flat_preview=${previewUserFlatPolygonsEnabled() ? "on" : "off"} user_delete_hidden=${previewUserDeletePolygonsEnabled() ? "on" : "off"}`;
       const drivingText = `\ndriving=${driving.enabled ? "on" : "off"} road_candidates=${drivingRoadCache.length}`;
       document.getElementById("info").textContent =
-        `${renderPolys.length} visible polygons (${polys.length} source polygons)\nmode=${selectionMode()}\nflatten=${flattenSelected.size} delete=${deleteSelected.size}\nloaded_sections=${[...visibleSections].sort((a, b) => a - b).join(",") || "none"}\nchosen=${section || "all"}\nactive_section=${activeEditSection() ?? "none"}\nhigh_variant=${document.getElementById("highVariant").value || "both"}${flatPreviewText}${drivingText}${transformText}`;
+        `${renderPolys.length} visible polygons (${polys.length} source polygons)\nmode=${selectionMode()}\nflatten=${flattenSelected.size} exempt=${exemptSelected.size} delete=${deleteSelected.size}\nloaded_sections=${[...visibleSections].sort((a, b) => a - b).join(",") || "none"}\nchosen=${section || "all"}\nactive_section=${activeEditSection() ?? "none"}\nhigh_variant=${document.getElementById("highVariant").value || "both"}${flatPreviewText}${drivingText}${transformText}`;
       updateTransformInfo();
     }
 
@@ -1147,6 +1154,7 @@
       course = data;
       courseName = (label || "course").replace(/_geometry\.json$/i, "").replace(/[^A-Za-z0-9_]+/g, "_").toLowerCase();
       flattenSelected.clear();
+      exemptSelected.clear();
       deleteSelected.clear();
       rebuildPolyLookup();
       visibleSections.clear();
@@ -1271,8 +1279,22 @@
 
     function showPolyInfo(poly) {
       document.getElementById("info").textContent =
-        `mode=${selectionMode()}\nflatten=${flattenSelected.size} delete=${deleteSelected.size}\n` +
+        `mode=${selectionMode()}\nflatten=${flattenSelected.size} exempt=${exemptSelected.size} delete=${deleteSelected.size}\n` +
         `id=${poly.id}\nentry=${poly.entry} ${poly.bank}\nsection=${polySection(poly)}\nmodel=${poly.model_index}\npolygon=${poly.polygon_index}\nrecord=${poly.record_offset}\nsource=${poly.source}\nsize=${poly.width}x${poly.height}\nselector=${poly.selector}\nlocation=${poly.location || ""}\narea_xz=${poly.area_xz}\nmax_edge_xz=${poly.max_edge_xz}`;
+    }
+
+    function exportSelectionCsv(map, filenameSuffix, reason) {
+      const rows = ["entry,bank,model_index,polygon_index,record_offset,source,width,height,selector,location,reason"];
+      for (const poly of map.values()) {
+        const values = [poly.entry, poly.bank, poly.model_index, poly.polygon_index, poly.record_offset, poly.source, poly.width, poly.height, poly.selector, poly.location || "", reason];
+        rows.push(values.map(v => `"${String(v).replaceAll('"', '""')}"`).join(","));
+      }
+      const blob = new Blob([rows.join("\n") + "\n"], { type: "text/csv" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `${courseName}_${filenameSuffix}.csv`;
+      a.click();
+      URL.revokeObjectURL(a.href);
     }
 
     function parseCsv(text) {
@@ -1419,6 +1441,7 @@
       if (mode === "section") handleSectionClick(poly);
       else if (mode === "snapping") handleSnappingClick(poly);
       else if (mode === "flatten") toggleMapSelection(flattenSelected, poly);
+      else if (mode === "exempt") toggleMapSelection(exemptSelected, poly);
       else if (mode === "delete") toggleMapSelection(deleteSelected, poly);
     }
 
@@ -1487,6 +1510,7 @@
     document.getElementById("clearSelection").addEventListener("click", () => {
       const mode = selectionMode();
       if (mode === "flatten") flattenSelected.clear();
+      else if (mode === "exempt") exemptSelected.clear();
       else if (mode === "delete") deleteSelected.clear();
       else if (mode === "snapping") {
         snapSourcePoly = null;
@@ -1540,6 +1564,11 @@
       await importSelectionCsv(e.target.files[0], flattenSelected, "flatten");
       e.target.value = "";
     });
+    document.getElementById("importExemptCsv").addEventListener("change", async e => {
+      if (!e.target.files.length) return;
+      await importSelectionCsv(e.target.files[0], exemptSelected, "flatten exempt");
+      e.target.value = "";
+    });
     document.getElementById("importDeleteCsv").addEventListener("change", async e => {
       if (!e.target.files.length) return;
       await importSelectionCsv(e.target.files[0], deleteSelected, "delete");
@@ -1551,30 +1580,13 @@
       e.target.value = "";
     });
     document.getElementById("download").addEventListener("click", () => {
-      const rows = ["entry,bank,model_index,polygon_index,record_offset,source,width,height,selector,location,reason"];
-      for (const poly of flattenSelected.values()) {
-        const values = [poly.entry, poly.bank, poly.model_index, poly.polygon_index, poly.record_offset, poly.source, poly.width, poly.height, poly.selector, poly.location || "", "viewer_flatten"];
-        rows.push(values.map(v => `"${String(v).replaceAll('"', '""')}"`).join(","));
-      }
-      const blob = new Blob([rows.join("\n") + "\n"], { type: "text/csv" });
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(blob);
-      a.download = `${courseName}_force_flat_polygons.csv`;
-      a.click();
-      URL.revokeObjectURL(a.href);
+      exportSelectionCsv(flattenSelected, "force_flat_polygons", "viewer_flatten");
+    });
+    document.getElementById("downloadExempt").addEventListener("click", () => {
+      exportSelectionCsv(exemptSelected, "force_textured_polygons", "viewer_flatten_exempt");
     });
     document.getElementById("downloadDelete").addEventListener("click", () => {
-      const rows = ["entry,bank,model_index,polygon_index,record_offset,source,width,height,selector,location,reason"];
-      for (const poly of deleteSelected.values()) {
-        const values = [poly.entry, poly.bank, poly.model_index, poly.polygon_index, poly.record_offset, poly.source, poly.width, poly.height, poly.selector, poly.location || "", "viewer_delete"];
-        rows.push(values.map(v => `"${String(v).replaceAll('"', '""')}"`).join(","));
-      }
-      const blob = new Blob([rows.join("\n") + "\n"], { type: "text/csv" });
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(blob);
-      a.download = `${courseName}_delete_polygons.csv`;
-      a.click();
-      URL.revokeObjectURL(a.href);
+      exportSelectionCsv(deleteSelected, "delete_polygons", "viewer_delete");
     });
     document.body.addEventListener("dragover", e => e.preventDefault());
     document.body.addEventListener("drop", e => {
