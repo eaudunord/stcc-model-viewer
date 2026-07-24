@@ -1,0 +1,96 @@
+{
+  "courses": [
+    {
+      "course": "COURSE0",
+      "file": "course0_geometry.json",
+      "models": 198,
+      "polygons": 12277,
+      "warnings": 0
+    },
+    {
+      "course": "COURSE1",
+      "file": "course1_geometry.json",
+      "models": 198,
+      "polygons": 12277,
+      "warnings": 0
+    },
+    {
+      "course": "COURSE1V",
+      "file": "course1v_geometry.json",
+      "models": 198,
+      "polygons": 9180,
+      "warnings": 1
+    },
+    {
+      "course": "COURSE2",
+      "file": "course2_geometry.json",
+      "models": 193,
+      "polygons": 13142,
+      "warnings": 0
+    },
+    {
+      "course": "COURSE22",
+      "file": "course22_geometry.json",
+      "models": 193,
+      "polygons": 13142,
+      "warnings": 0
+    },
+    {
+      "course": "COURSE2V",
+      "file": "course2v_geometry.json",
+      "models": 193,
+      "polygons": 9426,
+      "warnings": 1
+    },
+    {
+      "course": "COURSE3",
+      "file": "course3_geometry.json",
+      "models": 186,
+      "polygons": 11984,
+      "warnings": 0
+    },
+    {
+      "course": "COURSE3V",
+      "file": "course3v_geometry.json",
+      "models": 186,
+      "polygons": 8553,
+      "warnings": 0
+    },
+    {
+      "course": "COURSE4",
+      "file": "course4_geometry.json",
+      "models": 193,
+      "polygons": 11876,
+      "warnings": 1
+    },
+    {
+      "course": "COURSE4V",
+      "file": "course4v_geometry.json",
+      "models": 193,
+      "polygons": 9823,
+      "warnings": 1
+    },
+    {
+      "course": "COURSE5",
+      "file": "course5_geometry.json",
+      "models": 193,
+      "polygons": 10670,
+      "warnings": 0
+    },
+    {
+      "course": "COURSE52",
+      "file": "course52_geometry.json",
+      "models": 133,
+      "polygons": 9462,
+      "warnings": 1
+    },
+    {
+      "course": "COURSE5V",
+      "file": "course5v_geometry.json",
+      "models": 180,
+      "polygons": 6865,
+      "warnings": 0
+    }
+  ],
+  "generated_at": "2026-07-22T20:54:54"
+}
