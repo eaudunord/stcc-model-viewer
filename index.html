@@ -439,16 +439,7 @@
     function shouldPreviewFlatPoly(poly) {
       if (previewUserDeletePolygonsEnabled() && deleteSelected.has(poly.id)) return false;
       if (previewUserFlatPolygonsEnabled() && flattenSelected.has(poly.id)) return true;
-      const rule = flatRuleForPoly(poly);
-      if (!rule) return previewDefaultFlatBankEnabled(poly.entry);
-      if (rule.exempt) return false;
-      if (poly.entry === 1 && rule.exemptMedium) return false;
-      if (poly.entry === 2 && rule.exemptLow) return false;
-      if (previewDefaultFlatBankEnabled(poly.entry)) return true;
-      if (rule.flatten) return true;
-      if (poly.entry === 1 && rule.flattenMedium) return true;
-      if (poly.entry === 2 && rule.flattenLow) return true;
-      return false;
+      return previewDefaultFlatBankEnabled(poly.entry);
     }
 
     function previewFlatColor(poly) {
@@ -1307,12 +1298,6 @@
         ]);
         const rule = {
           color: parseColorField(colorText),
-          exempt: truthyCsv(row.exempt),
-          flatten: truthyCsv(row.flatten),
-          exemptMedium: truthyCsv(row.exempt_medium),
-          exemptLow: truthyCsv(row.exempt_low),
-          flattenMedium: truthyCsv(row.flatten_medium),
-          flattenLow: truthyCsv(row.flatten_low),
           row,
         };
         for (const key of textureRuleKeys(source, selector, width, height)) flatColorRules.set(key, rule);
