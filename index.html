@@ -115,11 +115,13 @@
       <label>Selection Mode</label>
       <select id="selectionMode">
         <option value="section">Section</option>
+        <option value="polygon">Polygon</option>
         <option value="flatten">Flatten</option>
         <option value="flatmesh">Flat Mesh</option>
         <option value="exempt">Flatten Exempt</option>
         <option value="delete">Delete</option>
       </select>
+      <button id="highlightSameTexture">Highlight Same Texture</button>
       <button id="clearSelection">Clear Selection</button>
     </div>
     <div class="control-group">
@@ -144,7 +146,7 @@
         <option value="visible">All visible polygons</option>
       </select>
     </div>
-    <p class="hint">Section mode activates a section. Flatten, Flat Mesh, and Delete modes build export lists. Shift+click is a quick section select.</p>
+    <p class="hint">Section mode activates a section. Polygon mode inspects a polygon. Flatten, Flat Mesh, and Delete modes build export lists. Shift+click is a quick section select. Ctrl+Shift+click inspects a polygon.</p>
     <div id="info">No polygon selected.</div>
   </div>
   <div id="filePane" class="pane">
@@ -233,6 +235,8 @@
     const loadedTextureIndexes = new Map();
     let activeTextureIndexCourse = null;
     let lastPickedPoly = null;
+    let selectedPolygon = null;
+    const sameTextureHighlighted = new Map();
     let snapSourcePoly = null;
     let snapTargetPoly = null;
     let lastAddedSection = null;
@@ -438,7 +442,16 @@
     }
 
     function textureKey(poly) {
-      return `${String(poly.source).toUpperCase()}|${String(poly.selector).toUpperCase()}|${poly.width}x${poly.height}`;
+      return `${normalizeHexText(poly.source, 5).toUpperCase()}|${normalizeHexText(poly.selector, 4).toUpperCase()}|${Number(poly.width)}x${Number(poly.height)}`;
+    }
+
+    function textureSourceKey(poly) {
+      return normalizeHexText(poly.source, 5).toUpperCase();
+    }
+
+    function textureKeyLabel(poly) {
+      if (!poly) return "none";
+      return `${normalizeHexText(poly.source, 5)} ${normalizeHexText(poly.selector, 4)} ${poly.width}x${poly.height}`;
     }
 
     function textureIndexNameForCourse(name) {
@@ -1117,6 +1130,7 @@
     }
 
     function polyHighlight(poly) {
+      if (selectedPolygon && poly.id === selectedPolygon.id) return { color: 0xffffff, opacity: 0.90, edge: 0xffffff };
       if (snapSourcePoly && poly.id === snapSourcePoly.id) return { color: 0xff9b00, opacity: 0.88, edge: 0xffffff };
       if (snapTargetPoly && poly.id === snapTargetPoly.id) return { color: 0x00e5ff, opacity: 0.88, edge: 0xffffff };
       if (!previewUserDeletePolygonsEnabled() && deleteSelected.has(poly.id)) return { color: 0xff00d4, opacity: 0.78, edge: 0xffffff };
@@ -1124,6 +1138,7 @@
       if (!previewUserFlatPolygonsEnabled() && flattenSelected.has(poly.id)) return { color: 0xff2020, opacity: 0.82, edge: 0xffffff };
       if (flatMeshSelected.has(poly.id)) return { color: 0xff8a00, opacity: 0.84, edge: 0xffffff };
       if (exemptSelected.has(poly.id)) return { color: 0x22d07a, opacity: 0.74, edge: 0xffffff };
+      if (sameTextureHighlighted.has(poly.id)) return { color: 0xfff000, opacity: 0.72, edge: 0xffffff };
       if (activeSection !== null && polySection(poly) === activeSection && texturePreviewMode() === "off") return { color: 0xffff40, opacity: 0.34, edge: 0xffff40 };
       return null;
     }
@@ -1214,8 +1229,11 @@
       const texturePreviewText = ` texture_preview=${texturePreviewMode()} texture_index=${activeTextureIndexCourse || "none"} texture_cache=${textureCache.size}`;
       const flatPreviewText = `\nflat_color_rules=${flatColorRules.size} flat_lod_banks=${previewBanks} user_flat_preview=${previewUserFlatPolygonsEnabled() ? "on" : "off"} user_flat_mesh_preview=${previewUserFlatMeshPolygonsEnabled() ? "on" : "off"} user_delete_hidden=${previewUserDeletePolygonsEnabled() ? "on" : "off"}${texturePreviewText}`;
       const drivingText = `\ndriving=${driving.enabled ? "on" : "off"} road_candidates=${drivingRoadCache.length}`;
+      const polygonText = selectedPolygon
+        ? `\nselected_polygon=${selectedPolygon.id} selected_texture=${textureKeyLabel(selectedPolygon)} texture_highlight=${sameTextureHighlighted.size}`
+        : `\nselected_polygon=none texture_highlight=${sameTextureHighlighted.size}`;
       document.getElementById("info").textContent =
-        `${renderPolys.length} visible polygons (${polys.length} source polygons)\nmode=${selectionMode()}\nflatten=${flattenSelected.size} flat_mesh=${flatMeshSelected.size} exempt=${exemptSelected.size} delete=${deleteSelected.size}\nloaded_sections=${[...visibleSections].sort((a, b) => a - b).join(",") || "none"}\nchosen=${section || "all"}\nactive_section=${activeEditSection() ?? "none"}\nhigh_variant=${document.getElementById("highVariant").value || "both"}${flatPreviewText}${drivingText}${transformText}`;
+        `${renderPolys.length} visible polygons (${polys.length} source polygons)\nmode=${selectionMode()}\nflatten=${flattenSelected.size} flat_mesh=${flatMeshSelected.size} exempt=${exemptSelected.size} delete=${deleteSelected.size}\nloaded_sections=${[...visibleSections].sort((a, b) => a - b).join(",") || "none"}\nchosen=${section || "all"}\nactive_section=${activeEditSection() ?? "none"}\nhigh_variant=${document.getElementById("highVariant").value || "both"}${polygonText}${flatPreviewText}${drivingText}${transformText}`;
       updateTransformInfo();
     }
 
@@ -1241,6 +1259,8 @@
       flatMeshSelected.clear();
       exemptSelected.clear();
       deleteSelected.clear();
+      selectedPolygon = null;
+      sameTextureHighlighted.clear();
       rebuildPolyLookup();
       visibleSections.clear();
       sectionTransforms.clear();
@@ -1382,11 +1402,53 @@
       showPolyInfo(poly);
     }
 
-    function showPolyInfo(poly) {
+    function handlePolygonSelection(poly, hits = null) {
+      lastPickedPoly = poly;
+      selectedPolygon = poly;
+      sameTextureHighlighted.clear();
+      rebuildScene();
+      showPolyInfo(poly, hits);
+    }
+
+    function highlightSameTextureAsSelected() {
+      const sourcePoly = selectedPolygon || lastPickedPoly;
+      if (!course || !sourcePoly) {
+        document.getElementById("info").textContent = "Select a polygon first, then highlight matching textures.";
+        return;
+      }
+      const key = textureSourceKey(sourcePoly);
+      sameTextureHighlighted.clear();
+      let total = 0;
+      let visible = 0;
+      for (const poly of course.polygons || []) {
+        if (textureSourceKey(poly) !== key) continue;
+        sameTextureHighlighted.set(poly.id, poly);
+        total++;
+        if (sectionVisible(poly) && highVariantMatches(poly) && polygonMatches(poly)) visible++;
+      }
+      selectedPolygon = sourcePoly;
+      rebuildScene();
+      document.getElementById("info").textContent =
+        `Highlighted polygons with matching texture source\nsource=${textureSourceKey(sourcePoly)}\nselected_texture=${textureKeyLabel(sourcePoly)}\nmatched_total=${total}\nmatched_visible=${visible}\n` +
+        `selected_id=${sourcePoly.id}\nentry=${sourcePoly.entry} ${sourcePoly.bank}\nsection=${polySection(sourcePoly)}\nmodel=${sourcePoly.model_index}\npolygon=${sourcePoly.polygon_index}`;
+    }
+
+    function hitStackInfo(hits) {
+      if (!hits || !hits.length) return "";
+      const rows = hits.slice(0, 8).map((hit, index) => {
+        const p = hit.object.userData.poly;
+        const table = p._viewerTable === null || p._viewerTable === undefined ? "" : ` t${p._viewerTable}`;
+        const tex = textureLookupStatus(p);
+        return `${index + 1}. id=${p.id} e=${p.entry}${table} sec=${polySection(p)} poly=${p.polygon_index} src=${normalizeHexText(p.source, 5)} sel=${normalizeHexText(p.selector, 4)} ${p.width}x${p.height} tex=${tex.available ? tex.status : "missing"} dist=${hit.distance.toFixed(1)}`;
+      });
+      return `\n\nvisible_hit_stack=${hits.length}\n${rows.join("\n")}`;
+    }
+
+    function showPolyInfo(poly, hits = null) {
       const textureInfo = textureLookupStatus(poly);
       document.getElementById("info").textContent =
-        `mode=${selectionMode()}\nflatten=${flattenSelected.size} exempt=${exemptSelected.size} delete=${deleteSelected.size}\n` +
-        `id=${poly.id}\nentry=${poly.entry} ${poly.bank}\nsection=${polySection(poly)}\nmodel=${poly.model_index}\npolygon=${poly.polygon_index}\nrecord=${poly.record_offset}\nsource=${poly.source}\nsize=${poly.width}x${poly.height}\nselector=${poly.selector}\ntexture=${textureInfo.status}\ntexture_key=${textureInfo.key}\nlocation=${poly.location || ""}\narea_xz=${poly.area_xz}\nmax_edge_xz=${poly.max_edge_xz}`;
+        `mode=${selectionMode()}\nflatten=${flattenSelected.size} flat_mesh=${flatMeshSelected.size} exempt=${exemptSelected.size} delete=${deleteSelected.size} texture_highlight=${sameTextureHighlighted.size}\n` +
+        `id=${poly.id}\nentry=${poly.entry} ${poly.bank}\nsection=${polySection(poly)}\nmodel=${poly.model_index}\npolygon=${poly.polygon_index}\nrecord=${poly.record_offset}\nsource=${poly.source}\nsize=${poly.width}x${poly.height}\nselector=${poly.selector}\ntexture_lookup=${textureInfo.status}\ntexture_key=${textureInfo.key}\nlocation=${poly.location || ""}\narea_xz=${poly.area_xz}\nmax_edge_xz=${poly.max_edge_xz}${hitStackInfo(hits)}`;
     }
 
     function exportSelectionCsv(map, filenameSuffix, reason) {
@@ -1538,13 +1600,18 @@
       }
     }
 
-    function handlePolygonClick(poly, event = null) {
+    function handlePolygonClick(poly, event = null, hits = null) {
+      if (event && event.ctrlKey && event.shiftKey) {
+        handlePolygonSelection(poly, hits);
+        return;
+      }
       if (event && event.shiftKey) {
         handleSectionClick(poly);
         return;
       }
       const mode = selectionMode();
       if (mode === "section") handleSectionClick(poly);
+      else if (mode === "polygon") handlePolygonSelection(poly, hits);
       else if (mode === "snapping") handleSnappingClick(poly);
       else if (mode === "flatten") toggleMapSelection(flattenSelected, poly);
       else if (mode === "flatmesh") toggleMapSelection(flatMeshSelected, poly);
@@ -1566,7 +1633,7 @@
       pointer.y = -(event.clientY / innerHeight) * 2 + 1;
       raycaster.setFromCamera(pointer, camera);
       const hits = raycaster.intersectObjects(meshes, false);
-      if (hits.length) handlePolygonClick(hits[0].object.userData.poly, event);
+      if (hits.length) handlePolygonClick(hits[0].object.userData.poly, event, hits);
     });
     renderer.domElement.addEventListener("wheel", (event) => {
       const multiplier = event.shiftKey ? 4 : (event.ctrlKey ? 0.25 : 1);
@@ -1621,6 +1688,10 @@
       else if (mode === "flatmesh") flatMeshSelected.clear();
       else if (mode === "exempt") exemptSelected.clear();
       else if (mode === "delete") deleteSelected.clear();
+      else if (mode === "polygon") {
+        selectedPolygon = null;
+        sameTextureHighlighted.clear();
+      }
       else if (mode === "snapping") {
         snapSourcePoly = null;
         snapTargetPoly = null;
@@ -1630,6 +1701,7 @@
       }
       rebuildScene();
     });
+    document.getElementById("highlightSameTexture").addEventListener("click", highlightSameTextureAsSelected);
     document.getElementById("snapSection").addEventListener("click", snapSourceEdgeToTargetEdge);
     document.getElementById("exportTransforms").addEventListener("click", () => {
       const sections = {};
