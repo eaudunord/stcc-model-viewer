@@ -1,0 +1,9 @@
+{
+  "transforms": [
+    "course0_geometry_transform.json",
+    "course1_geometry_transform.json",
+    "course2_geometry_transform.json",
+    "course3_geometry_transform.json",
+    "course5_geometry_transform.json"
+  ]
+}

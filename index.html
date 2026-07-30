@@ -116,6 +116,7 @@
       <select id="selectionMode">
         <option value="section">Section</option>
         <option value="flatten">Flatten</option>
+        <option value="flatmesh">Flat Mesh</option>
         <option value="exempt">Flatten Exempt</option>
         <option value="delete">Delete</option>
       </select>
@@ -134,9 +135,16 @@
         <label class="check-card"><input id="previewFlatBank2" type="checkbox"> Low</label>
       </div>
       <label class="check-card"><input id="previewUserFlatPolygons" type="checkbox" checked> Flat shade user defined flat polygons</label>
+      <label class="check-card"><input id="previewUserFlatMeshPolygons" type="checkbox" checked> Flat mesh user defined polygons</label>
       <label class="check-card"><input id="previewUserDeletePolygons" type="checkbox" checked> Do not show user deleted polygons</label>
+      <label>Texture Preview</label>
+      <select id="texturePreviewMode">
+        <option value="off">Off</option>
+        <option value="active">Active section</option>
+        <option value="visible">All visible polygons</option>
+      </select>
     </div>
-    <p class="hint">Section mode activates a section. Flatten and Delete modes build export lists. Shift+click is a quick section select.</p>
+    <p class="hint">Section mode activates a section. Flatten, Flat Mesh, and Delete modes build export lists. Shift+click is a quick section select.</p>
     <div id="info">No polygon selected.</div>
   </div>
   <div id="filePane" class="pane">
@@ -147,6 +155,8 @@
     <h2>Import</h2>
     <label>Flat Polygon CSV</label>
     <input id="importFlatCsv" class="file-input" type="file" accept=".csv">
+    <label>Flat Mesh Polygon CSV</label>
+    <input id="importFlatMeshCsv" class="file-input" type="file" accept=".csv">
     <label>Flatten Exempt Polygon CSV</label>
     <input id="importExemptCsv" class="file-input" type="file" accept=".csv">
     <label>Delete Polygon CSV</label>
@@ -154,6 +164,7 @@
     <p class="hint">Imported CSVs are only loaded into this browser session so you can review, edit, and export them again.</p>
     <h2>Export</h2>
     <button id="download">Export Flat Polygon CSV</button>
+    <button id="downloadFlatMesh">Export Flat Mesh Polygon CSV</button>
     <button id="downloadExempt">Export Flatten Exempt CSV</button>
     <button id="downloadDelete">Export Delete Polygon CSV</button>
   </div>
@@ -164,7 +175,6 @@
   <div class="hidden-compat">
     <input id="drivingMode" type="checkbox">
     <input id="previewFlattenRules" type="checkbox" checked>
-    <input id="textureSelectedSection" type="checkbox">
     <input id="file" type="file">
     <input id="importFlatColorCsv" type="file">
     <input id="importTransforms" type="file">
@@ -209,6 +219,7 @@
     let courseName = "course";
     let meshes = [];
     const flattenSelected = new Map();
+    const flatMeshSelected = new Map();
     const exemptSelected = new Map();
     const deleteSelected = new Map();
     let polyLookup = new Map();
@@ -218,6 +229,9 @@
     const textureLoader = new THREE.TextureLoader();
     const textureCache = new Map();
     const textureStatus = new Map();
+    const textureIndexPromises = new Map();
+    const loadedTextureIndexes = new Map();
+    let activeTextureIndexCourse = null;
     let lastPickedPoly = null;
     let snapSourcePoly = null;
     let snapTargetPoly = null;
@@ -346,8 +360,9 @@
       return bankColors[poly.entry] || 0xffffff;
     }
 
-    function textureSelectedSectionEnabled() {
-      return document.getElementById("textureSelectedSection").checked;
+    function texturePreviewMode() {
+      const el = document.getElementById("texturePreviewMode");
+      return el ? el.value : "off";
     }
 
     function normalizeHexText(value, width = 0) {
@@ -426,6 +441,52 @@
       return `${String(poly.source).toUpperCase()}|${String(poly.selector).toUpperCase()}|${poly.width}x${poly.height}`;
     }
 
+    function textureIndexNameForCourse(name) {
+      const normalized = String(name || "").toLowerCase();
+      const match = normalized.match(/course\d+v?/);
+      if (!match) return null;
+      const exact = match[0];
+      const fallback = exact.replace(/v$/, "");
+      if (["course2", "course3"].includes(exact)) return exact;
+      if (["course2", "course3"].includes(fallback)) return fallback;
+      return null;
+    }
+
+    async function ensureTextureIndexForCourse(name) {
+      const indexName = textureIndexNameForCourse(name);
+      textureCache.clear();
+      textureStatus.clear();
+      if (!indexName) {
+        activeTextureIndexCourse = null;
+        window.STCC_TEXTURE_INDEX = {};
+        return false;
+      }
+      if (!textureIndexPromises.has(indexName)) {
+        textureIndexPromises.set(indexName, new Promise((resolve) => {
+          const script = document.createElement("script");
+          script.src = `${indexName}_texture_index.js?v=${Date.now()}`;
+          script.onload = () => {
+            loadedTextureIndexes.set(indexName, window.STCC_TEXTURE_INDEX || {});
+            resolve(true);
+          };
+          script.onerror = () => {
+            console.warn(`Texture index unavailable for ${indexName}`);
+            resolve(false);
+          };
+          document.head.appendChild(script);
+        }));
+      }
+      const loaded = await textureIndexPromises.get(indexName);
+      if (!loaded) {
+        activeTextureIndexCourse = null;
+        window.STCC_TEXTURE_INDEX = {};
+        return false;
+      }
+      activeTextureIndexCourse = indexName;
+      window.STCC_TEXTURE_INDEX = loadedTextureIndexes.get(indexName) || {};
+      return true;
+    }
+
     function textureForPoly(poly) {
       const url = (window.STCC_TEXTURE_INDEX || {})[textureKey(poly)];
       if (!url) return null;
@@ -449,6 +510,13 @@
       return textureCache.get(url);
     }
 
+    function textureLookupStatus(poly) {
+      const key = textureKey(poly);
+      const url = (window.STCC_TEXTURE_INDEX || {})[key];
+      if (!url) return { key, available: false, status: "missing" };
+      return { key, available: true, status: textureStatus.get(url) || "available" };
+    }
+
     function previewFlattenRulesEnabled() {
       return true;
     }
@@ -460,6 +528,11 @@
 
     function previewUserFlatPolygonsEnabled() {
       const el = document.getElementById("previewUserFlatPolygons");
+      return Boolean(el && el.checked);
+    }
+
+    function previewUserFlatMeshPolygonsEnabled() {
+      const el = document.getElementById("previewUserFlatMeshPolygons");
       return Boolean(el && el.checked);
     }
 
@@ -478,6 +551,7 @@
 
     function shouldPreviewFlatPoly(poly) {
       if (previewUserDeletePolygonsEnabled() && deleteSelected.has(poly.id)) return false;
+      if (previewUserFlatMeshPolygonsEnabled() && flatMeshSelected.has(poly.id)) return true;
       if (previewUserFlatPolygonsEnabled() && flattenSelected.has(poly.id)) return true;
       if (exemptSelected.has(poly.id)) return false;
       return previewDefaultFlatBankEnabled(poly.entry);
@@ -490,8 +564,14 @@
       return 0xff40d8;
     }
 
-    function shouldTexturePoly(poly) {
-      return false;
+    function shouldTexturePoly(poly, flatPreviewColor = null) {
+      if (flatPreviewColor !== null) return false;
+      if (!activeTextureIndexCourse) return false;
+      const mode = texturePreviewMode();
+      if (mode === "visible") return true;
+      if (mode !== "active") return false;
+      const section = activeEditSection();
+      return section !== null && polySection(poly) === section;
     }
 
     function polySection(poly) {
@@ -1027,8 +1107,9 @@
       const target = editableTransformTarget(lastPickedPoly);
       if (!target) return;
       const scope = target.entry === null ? "all banks" : `${bankNames[target.entry] || target.entry} bank`;
+      const textureText = `\ntexture_preview=${texturePreviewMode()} texture_index=${activeTextureIndexCourse || "none"} texture_cache=${textureCache.size}`;
       document.getElementById("info").textContent =
-        `active section ${target.section} (${scope})\nflatten=${flattenSelected.size} exempt=${exemptSelected.size} delete=${deleteSelected.size}\nUse Flatten, Flatten Exempt, or Delete mode to mark polygons for CSV export.`;
+        `active section ${target.section} (${scope})\nflatten=${flattenSelected.size} flat_mesh=${flatMeshSelected.size} exempt=${exemptSelected.size} delete=${deleteSelected.size}${textureText}\nUse Flatten, Flat Mesh, Flatten Exempt, or Delete mode to mark polygons for CSV export.`;
     }
 
     function selectionMode() {
@@ -1039,9 +1120,11 @@
       if (snapSourcePoly && poly.id === snapSourcePoly.id) return { color: 0xff9b00, opacity: 0.88, edge: 0xffffff };
       if (snapTargetPoly && poly.id === snapTargetPoly.id) return { color: 0x00e5ff, opacity: 0.88, edge: 0xffffff };
       if (!previewUserDeletePolygonsEnabled() && deleteSelected.has(poly.id)) return { color: 0xff00d4, opacity: 0.78, edge: 0xffffff };
+      if (!previewUserFlatMeshPolygonsEnabled() && flatMeshSelected.has(poly.id)) return { color: 0xff8a00, opacity: 0.84, edge: 0xffffff };
       if (!previewUserFlatPolygonsEnabled() && flattenSelected.has(poly.id)) return { color: 0xff2020, opacity: 0.82, edge: 0xffffff };
+      if (flatMeshSelected.has(poly.id)) return { color: 0xff8a00, opacity: 0.84, edge: 0xffffff };
       if (exemptSelected.has(poly.id)) return { color: 0x22d07a, opacity: 0.74, edge: 0xffffff };
-      if (activeSection !== null && polySection(poly) === activeSection && !textureSelectedSectionEnabled()) return { color: 0xffff40, opacity: 0.34, edge: 0xffff40 };
+      if (activeSection !== null && polySection(poly) === activeSection && texturePreviewMode() === "off") return { color: 0xffff40, opacity: 0.34, edge: 0xffff40 };
       return null;
     }
 
@@ -1055,7 +1138,7 @@
       geometry.computeVertexNormals();
       const highlight = polyHighlight(poly);
       const flatPreviewColor = previewFlatColor(poly);
-      const texture = shouldTexturePoly(poly) ? textureForPoly(poly) : null;
+      const texture = shouldTexturePoly(poly, flatPreviewColor) ? textureForPoly(poly) : null;
       const material = new THREE.MeshBasicMaterial({
         color: texture ? 0xffffff : (flatPreviewColor !== null ? flatPreviewColor : (highlight ? highlight.color : polygonColor(poly))),
         map: texture,
@@ -1128,10 +1211,11 @@
         ? `\nloaded=${course.viewer_transform.type}\ntransformed=${course.viewer_transform.transformed_polygons}`
         : "";
       const previewBanks = [0, 1, 2].filter(entry => previewDefaultFlatBankEnabled(entry)).map(entry => bankNames[entry]).join(",") || "none";
-      const flatPreviewText = `\nflat_color_rules=${flatColorRules.size} flat_lod_banks=${previewBanks} user_flat_preview=${previewUserFlatPolygonsEnabled() ? "on" : "off"} user_delete_hidden=${previewUserDeletePolygonsEnabled() ? "on" : "off"}`;
+      const texturePreviewText = ` texture_preview=${texturePreviewMode()} texture_index=${activeTextureIndexCourse || "none"} texture_cache=${textureCache.size}`;
+      const flatPreviewText = `\nflat_color_rules=${flatColorRules.size} flat_lod_banks=${previewBanks} user_flat_preview=${previewUserFlatPolygonsEnabled() ? "on" : "off"} user_flat_mesh_preview=${previewUserFlatMeshPolygonsEnabled() ? "on" : "off"} user_delete_hidden=${previewUserDeletePolygonsEnabled() ? "on" : "off"}${texturePreviewText}`;
       const drivingText = `\ndriving=${driving.enabled ? "on" : "off"} road_candidates=${drivingRoadCache.length}`;
       document.getElementById("info").textContent =
-        `${renderPolys.length} visible polygons (${polys.length} source polygons)\nmode=${selectionMode()}\nflatten=${flattenSelected.size} exempt=${exemptSelected.size} delete=${deleteSelected.size}\nloaded_sections=${[...visibleSections].sort((a, b) => a - b).join(",") || "none"}\nchosen=${section || "all"}\nactive_section=${activeEditSection() ?? "none"}\nhigh_variant=${document.getElementById("highVariant").value || "both"}${flatPreviewText}${drivingText}${transformText}`;
+        `${renderPolys.length} visible polygons (${polys.length} source polygons)\nmode=${selectionMode()}\nflatten=${flattenSelected.size} flat_mesh=${flatMeshSelected.size} exempt=${exemptSelected.size} delete=${deleteSelected.size}\nloaded_sections=${[...visibleSections].sort((a, b) => a - b).join(",") || "none"}\nchosen=${section || "all"}\nactive_section=${activeEditSection() ?? "none"}\nhigh_variant=${document.getElementById("highVariant").value || "both"}${flatPreviewText}${drivingText}${transformText}`;
       updateTransformInfo();
     }
 
@@ -1154,6 +1238,7 @@
       course = data;
       courseName = (label || "course").replace(/_geometry\.json$/i, "").replace(/[^A-Za-z0-9_]+/g, "_").toLowerCase();
       flattenSelected.clear();
+      flatMeshSelected.clear();
       exemptSelected.clear();
       deleteSelected.clear();
       rebuildPolyLookup();
@@ -1197,8 +1282,10 @@
       if (!transformResponse.ok) throw new Error(`failed to load ${transformFile}: ${transformResponse.status}`);
       const data = await response.json();
       const transforms = await transformResponse.json();
-      await loadCourseData(data, select.options[select.selectedIndex].dataset.course || select.value, { transforms });
-      await loadDefaultFlatColorCsv(select.options[select.selectedIndex].dataset.course || "");
+      const courseCode = select.options[select.selectedIndex].dataset.course || select.value;
+      await ensureTextureIndexForCourse(courseCode);
+      await loadCourseData(data, courseCode, { transforms });
+      await loadDefaultFlatColorCsv(courseCode);
     }
 
     async function refreshCourseList() {
@@ -1213,11 +1300,29 @@
         const response = await fetch(`geometry/geometry_index.json?v=${Date.now()}`);
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const index = await response.json();
+        let availableTransforms = null;
+        try {
+          const transformIndexResponse = await fetch(`transform/transform_index.json?v=${Date.now()}`);
+          if (transformIndexResponse.ok) {
+            const transformIndex = await transformIndexResponse.json();
+            availableTransforms = new Set(transformIndex.transforms || []);
+          }
+        } catch (error) {
+          console.warn("Transform index unavailable; falling back to per-file checks", error);
+        }
         for (const item of index.courses || []) {
           const stem = item.file.replace(/\.json$/i, "");
           const transformFile = `${stem}_transform.json`;
-          const transformResponse = await fetch(`transform/${transformFile}?v=${Date.now()}`, { method: "HEAD" });
-          if (!transformResponse.ok) continue;
+          if (availableTransforms) {
+            if (!availableTransforms.has(transformFile)) continue;
+          } else {
+            try {
+              const transformResponse = await fetch(`transform/${transformFile}?v=${Date.now()}`, { method: "HEAD" });
+              if (!transformResponse.ok) continue;
+            } catch (error) {
+              continue;
+            }
+          }
           const option = document.createElement("option");
           option.value = item.file;
           option.dataset.transform = transformFile;
@@ -1278,9 +1383,10 @@
     }
 
     function showPolyInfo(poly) {
+      const textureInfo = textureLookupStatus(poly);
       document.getElementById("info").textContent =
         `mode=${selectionMode()}\nflatten=${flattenSelected.size} exempt=${exemptSelected.size} delete=${deleteSelected.size}\n` +
-        `id=${poly.id}\nentry=${poly.entry} ${poly.bank}\nsection=${polySection(poly)}\nmodel=${poly.model_index}\npolygon=${poly.polygon_index}\nrecord=${poly.record_offset}\nsource=${poly.source}\nsize=${poly.width}x${poly.height}\nselector=${poly.selector}\nlocation=${poly.location || ""}\narea_xz=${poly.area_xz}\nmax_edge_xz=${poly.max_edge_xz}`;
+        `id=${poly.id}\nentry=${poly.entry} ${poly.bank}\nsection=${polySection(poly)}\nmodel=${poly.model_index}\npolygon=${poly.polygon_index}\nrecord=${poly.record_offset}\nsource=${poly.source}\nsize=${poly.width}x${poly.height}\nselector=${poly.selector}\ntexture=${textureInfo.status}\ntexture_key=${textureInfo.key}\nlocation=${poly.location || ""}\narea_xz=${poly.area_xz}\nmax_edge_xz=${poly.max_edge_xz}`;
     }
 
     function exportSelectionCsv(map, filenameSuffix, reason) {
@@ -1441,6 +1547,7 @@
       if (mode === "section") handleSectionClick(poly);
       else if (mode === "snapping") handleSnappingClick(poly);
       else if (mode === "flatten") toggleMapSelection(flattenSelected, poly);
+      else if (mode === "flatmesh") toggleMapSelection(flatMeshSelected, poly);
       else if (mode === "exempt") toggleMapSelection(exemptSelected, poly);
       else if (mode === "delete") toggleMapSelection(deleteSelected, poly);
     }
@@ -1499,17 +1606,19 @@
       else disableDrivingMode();
     });
     document.getElementById("highVariant").addEventListener("change", rebuildScene);
-    document.getElementById("textureSelectedSection").addEventListener("change", rebuildScene);
+    document.getElementById("texturePreviewMode").addEventListener("change", rebuildScene);
     for (const entry of [0, 1, 2]) {
       document.getElementById("previewFlatBank" + entry).addEventListener("change", rebuildScene);
     }
     document.getElementById("previewUserFlatPolygons").addEventListener("change", rebuildScene);
+    document.getElementById("previewUserFlatMeshPolygons").addEventListener("change", rebuildScene);
     document.getElementById("previewUserDeletePolygons").addEventListener("change", rebuildScene);
     document.getElementById("selectionMode").addEventListener("change", rebuildScene);
     document.getElementById("transformScope").addEventListener("change", updateTransformInfo);
     document.getElementById("clearSelection").addEventListener("click", () => {
       const mode = selectionMode();
       if (mode === "flatten") flattenSelected.clear();
+      else if (mode === "flatmesh") flatMeshSelected.clear();
       else if (mode === "exempt") exemptSelected.clear();
       else if (mode === "delete") deleteSelected.clear();
       else if (mode === "snapping") {
@@ -1564,6 +1673,11 @@
       await importSelectionCsv(e.target.files[0], flattenSelected, "flatten");
       e.target.value = "";
     });
+    document.getElementById("importFlatMeshCsv").addEventListener("change", async e => {
+      if (!e.target.files.length) return;
+      await importSelectionCsv(e.target.files[0], flatMeshSelected, "flat mesh");
+      e.target.value = "";
+    });
     document.getElementById("importExemptCsv").addEventListener("change", async e => {
       if (!e.target.files.length) return;
       await importSelectionCsv(e.target.files[0], exemptSelected, "flatten exempt");
@@ -1581,6 +1695,9 @@
     });
     document.getElementById("download").addEventListener("click", () => {
       exportSelectionCsv(flattenSelected, "force_flat_polygons", "viewer_flatten");
+    });
+    document.getElementById("downloadFlatMesh").addEventListener("click", () => {
+      exportSelectionCsv(flatMeshSelected, "force_flat_mesh_polygons", "viewer_flat_mesh");
     });
     document.getElementById("downloadExempt").addEventListener("click", () => {
       exportSelectionCsv(exemptSelected, "force_textured_polygons", "viewer_flatten_exempt");
