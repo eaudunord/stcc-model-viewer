@@ -13,9 +13,11 @@
 !/flat_colors/
 !/flat_colors/*.csv
 
+!*_texture_index.js
+
 # Keep local/editor-only assets out of the public package.
 course_polygon_viewer.html
-course2_texture_index.js
+#course2_texture_index.js
 course2_current_texture_png/
 *_texture_png/
 *.mc*
