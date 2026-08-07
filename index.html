@@ -460,9 +460,7 @@
       if (!match) return null;
       const exact = match[0];
       const fallback = exact.replace(/v$/, "");
-      if (["course2", "course3"].includes(exact)) return exact;
-      if (["course2", "course3"].includes(fallback)) return fallback;
-      return null;
+      return exact.endsWith("v") ? fallback : exact;
     }
 
     async function ensureTextureIndexForCourse(name) {
